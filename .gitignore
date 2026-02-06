@@ -34,3 +34,6 @@ node_modules/
 
 # Ralph scratchpad (per-project working files)
 ralph/scratchpad/
+
+# Old files
+_archive

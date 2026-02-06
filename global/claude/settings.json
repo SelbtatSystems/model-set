@@ -1,0 +1,5 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/claude-code/main/schema/settings.json",
+  "model": "claude-sonnet-4-20250514",
+  "theme": "dark"
+}

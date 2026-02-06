@@ -1,0 +1,36 @@
+# Secrets
+.env
+.env.local
+.env.*.local
+
+# Generated MCP configs (contain secrets)
+.mcp.json
+!**/.mcp.json.template
+
+# Local settings with permissions
+**/settings.local.json
+
+# Claude Code session data
+.claude/projects/
+.claude/statsig/
+.claude/todos/
+.claude/*.log
+
+# Codex generated config (contains secrets from .env substitution)
+global/codex/config.toml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node
+node_modules/
+
+# Ralph scratchpad (per-project working files)
+ralph/scratchpad/

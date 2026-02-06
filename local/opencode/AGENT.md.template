@@ -1,0 +1,52 @@
+# AGENT.md
+
+> **Update when major changes made** to maintain accurate reference. Be concise.
+
+## Project Overview
+
+<!-- Describe the project here -->
+
+## Git & GitHub
+
+- Use `gh` CLI for GitHub operations
+- Prefix branches with `sven/`
+- Concise commit messages
+
+## MCP Servers
+
+### Global MCPs (always available)
+- **stitch**: Generate UI designs from text prompts
+- **context7**: Documentation lookup and code context
+- **aiguide**: PostgreSQL/TimescaleDB documentation search
+
+### Local MCPs (project-specific)
+- **postgres**: Database queries and schema management
+- **redis**: Cache operations
+
+## Browser Testing (agent-browser)
+
+**REQUIRED after every frontend change.**
+
+### Quick Workflow
+```bash
+agent-browser open http://localhost:3000/path
+agent-browser snapshot -i          # Get interactive elements
+agent-browser screenshot ./test.png
+agent-browser click @e1            # Interact by ref
+agent-browser close
+```
+
+### Key Commands
+```bash
+agent-browser open <url>           # Navigate
+agent-browser snapshot -i          # Interactive elements w/ refs
+agent-browser click @e1            # Click by ref
+agent-browser fill @e2 "text"      # Fill input
+agent-browser screenshot ./path    # Capture
+agent-browser wait --network       # Wait for API calls
+agent-browser close                # Done
+```
+
+## Codebase Patterns
+
+<!-- Add reusable patterns here as you discover them -->

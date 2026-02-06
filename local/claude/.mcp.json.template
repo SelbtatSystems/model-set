@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "--network", "your-docker-network",
+        "-e", "DATABASE_URI",
+        "crystaldba/postgres-mcp",
+        "--access-mode=unrestricted"
+      ],
+      "env": {
+        "DATABASE_URI": "${POSTGRES_DATABASE_URI}"
+      }
+    },
+    "redis": {
+      "command": "cmd",
+      "args": [
+        "/c", "uvx", "--from", "redis-mcp-server@latest",
+        "redis-mcp-server", "--url", "${REDIS_URL}"
+      ]
+    }
+  }
+}

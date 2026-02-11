@@ -52,5 +52,13 @@
       "shell:npm *",
       "shell:npx *"
     ]
+  },
+  "security": {
+    "auth": {
+      "selectedType": "oauth-personal"
+    }
+  },
+  "general": {
+    "previewFeatures": true
   }
 }

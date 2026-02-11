@@ -1,10 +1,10 @@
 {
   "mcpServers": {
     "stitch": {
-      "command": "npx",
-      "args": ["-y", "stitch-mcp-auto"],
-      "env": {
-        "GOOGLE_CLOUD_PROJECT": "${GOOGLE_CLOUD_PROJECT}"
+      "type": "http",
+      "url": "https://stitch.googleapis.com/mcp",
+      "headers": {
+        "X-Goog-Api-Key": "${STITCH_API_KEY}"
       }
     },
     "context7": {
@@ -15,8 +15,8 @@
       }
     },
     "aiguide": {
-      "command": "npx",
-      "args": ["-y", "@anthropic/pg-aiguide-mcp"]
+      "type": "http",
+      "url": "https://mcp.tigerdata.com/docs"
     }
   }
 }

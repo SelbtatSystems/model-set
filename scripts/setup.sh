@@ -76,20 +76,32 @@ fi
 echo ""
 
 # =====================================================
-# 2. Setup Stitch MCP (OAuth-based)
+# 2. Setup Stitch MCP (HTTP transport via API key)
 # =====================================================
 echo "Setting up Stitch MCP..."
-echo "  This will open a browser for Google OAuth authentication."
-echo ""
-read -p "  Run Stitch MCP setup now? [y/N] " -n 1 -r
-echo ""
 
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo "  Running stitch-mcp-auto-setup..."
-    npx stitch-mcp-auto-setup
-    echo "  Stitch MCP setup complete!"
+STITCH_KEY=$(grep '^STITCH_API_KEY=' "$REPO_DIR/.env" 2>/dev/null | cut -d'=' -f2- | xargs)
+if [ -n "$STITCH_KEY" ] && [ "$STITCH_KEY" != "AQ.STITCH_API_KEY" ]; then
+    echo "  Stitch API key found in .env"
+
+    # Add Stitch to Claude Code (HTTP transport, user scope)
+    if command -v claude &> /dev/null; then
+        claude mcp add stitch --transport http https://stitch.googleapis.com/mcp \
+            --header "X-Goog-Api-Key: $STITCH_KEY" -s user 2>/dev/null && \
+            echo "    Added stitch to Claude Code (user scope)" || \
+            echo "    Warning: Failed to add stitch to Claude Code"
+    fi
+
+    # Install Stitch extension for Gemini CLI
+    if command -v gemini &> /dev/null; then
+        gemini extensions install https://github.com/gemini-cli-extensions/stitch 2>/dev/null && \
+            echo "    Added stitch extension to Gemini CLI" || \
+            echo "    Warning: Failed to add stitch to Gemini CLI"
+    fi
 else
-    echo "  Skipped. Run later with: npx stitch-mcp-auto-setup"
+    echo "  WARNING: No STITCH_API_KEY in .env"
+    echo "  Add your Stitch API key to $REPO_DIR/.env"
+    echo "  Get one at: https://aistudio.google.com/apikey"
 fi
 
 echo ""
@@ -310,9 +322,9 @@ echo "  - ~/.opencode -> model-set/global/opencode"
 echo "  - ~/.codex -> model-set/global/codex"
 echo ""
 echo "MCP Servers configured:"
-echo "  - stitch (OAuth via stitch-mcp-auto)"
-echo "  - context7 (API key in .env)"
-echo "  - aiguide (no auth required)"
+echo "  - stitch (HTTP transport, API key in .env)"
+echo "  - context7 (HTTP transport, API key in .env)"
+echo "  - aiguide (npx @tigerdata/pg-aiguide, no auth required)"
 echo ""
 
 if [ ! -f "$ENV_FILE" ]; then

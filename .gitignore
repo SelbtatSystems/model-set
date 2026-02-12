@@ -23,6 +23,7 @@ global/claude/history.jsonl
 global/claude/projects/
 global/claude/shell-snapshots/
 global/claude/statsig/
+global/claude/paste-cache/
 global/claude/stats-cache.json
 global/claude/todos/
 

@@ -1,5 +1,5 @@
 {
-  "theme": "Default",
+  "theme": "orng",
   "permissions": {
     "autoApprove": [
       "mcp:stitch:create_project",
@@ -38,6 +38,7 @@
       "mcp:redis:exists",
       "mcp:redis:incr",
       "mcp:redis:decr",
+      "mcp:stripe:*",
       "shell:agent-browser open *",
       "shell:agent-browser snapshot *",
       "shell:agent-browser screenshot *",
@@ -47,18 +48,15 @@
       "shell:agent-browser close *",
       "shell:agent-browser console *",
       "shell:agent-browser install *",
+      "shell:docker *",
+      "shell:docker-compose *",
       "shell:git *",
       "shell:gh *",
       "shell:npm *",
-      "shell:npx *"
+      "shell:npx *",
+      "shell:pnpm *",
+      "shell:yarn *",
+      "shell:bun *"
     ]
-  },
-  "security": {
-    "auth": {
-      "selectedType": "oauth-personal"
-    }
-  },
-  "general": {
-    "previewFeatures": true
   }
 }

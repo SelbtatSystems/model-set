@@ -37,7 +37,7 @@ agent-browser check @e4            # Checkbox
 agent-browser select @e5 "option"  # Dropdown
 
 # Screenshots & Capture
-agent-browser screenshot ./path.png
+agent-browser screenshot ~/model-set/agent-browser/screenshots/name.png
 agent-browser screenshot --full    # Full page
 agent-browser pdf ./path.pdf
 
@@ -81,7 +81,7 @@ agent-browser open http://localhost:3101/path
 agent-browser snapshot -i
 
 # 3. Take screenshot at desktop width
-agent-browser screenshot ./test-desktop.png
+agent-browser screenshot ~/model-set/agent-browser/screenshots/test-desktop.png
 
 # 4. Test interactions if needed
 agent-browser click @e1
@@ -90,6 +90,10 @@ agent-browser snapshot -i
 # 5. Close when done
 agent-browser close
 ```
+
+## Screenshot Storage
+
+**ALWAYS save screenshots to `~/model-set/agent-browser/screenshots/`** — never use relative paths like `./test.png` which pollute the working directory.
 
 ## Best Practices
 

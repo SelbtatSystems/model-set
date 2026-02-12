@@ -29,6 +29,6 @@ agent-browser snapshot -i
 # Verify result
 echo "=== Result Page ==="
 agent-browser snapshot -i
-agent-browser screenshot ./form-result.png
+agent-browser screenshot ~/model-set/agent-browser/screenshots/form-result.png
 
 agent-browser close

@@ -113,7 +113,7 @@ Browser automation for visual testing after frontend changes.
 ```bash
 agent-browser open http://localhost:3000/path
 agent-browser snapshot -i          # Get interactive elements
-agent-browser screenshot ./test.png
+agent-browser screenshot ~/model-set/agent-browser/screenshots/test.png
 agent-browser click @e1            # Interact by ref
 agent-browser close
 ```

@@ -32,8 +32,8 @@ agent-browser state load ./auth.json
 # Parallel scraping
 agent-browser --session s1 open https://site.com/page1
 agent-browser --session s2 open https://site.com/page2
-agent-browser --session s1 screenshot ./page1.png
-agent-browser --session s2 screenshot ./page2.png
+agent-browser --session s1 screenshot ~/model-set/agent-browser/screenshots/page1.png
+agent-browser --session s2 screenshot ~/model-set/agent-browser/screenshots/page2.png
 ```
 
 ## Best Practices

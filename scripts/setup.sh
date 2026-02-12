@@ -63,6 +63,17 @@ else
     echo "    Installed!"
 fi
 
+# agent-browser system dependencies (Chromium needs libnspr4, libnss3, etc.)
+echo -n "  - agent-browser system deps..."
+if npx playwright install-deps chromium 2>/dev/null; then
+    echo " installed"
+else
+    echo " (skipped — may need sudo)"
+fi
+
+# Ensure screenshots directory exists
+mkdir -p "$REPO_DIR/agent-browser/screenshots"
+
 # Codex CLI
 echo -n "  - Codex CLI..."
 if command -v codex &> /dev/null; then
@@ -96,7 +107,17 @@ if [ -n "$STITCH_KEY" ] && [ "$STITCH_KEY" != "AQ.STITCH_API_KEY" ]; then
     if command -v gemini &> /dev/null; then
         gemini extensions install https://github.com/gemini-cli-extensions/stitch 2>/dev/null && \
             echo "    Added stitch extension to Gemini CLI" || \
-            echo "    Warning: Failed to add stitch to Gemini CLI"
+            echo "    Warning: Failed to add stitch extension to Gemini CLI"
+        
+        # Configure extension to use ADC with the correct Project ID
+        PROJECT_ID=$(grep '^GOOGLE_CLOUD_PROJECT=' "$REPO_DIR/.env" 2>/dev/null | cut -d'=' -f2- | xargs)
+        if [ -n "$PROJECT_ID" ]; then
+            EXT_DIR="$HOME_DIR/.gemini/extensions/Stitch"
+            if [ -f "$EXT_DIR/gemini-extension-adc.json" ]; then
+                sed "s/YOUR_PROJECT_ID/$PROJECT_ID/g" "$EXT_DIR/gemini-extension-adc.json" > "$EXT_DIR/gemini-extension.json"
+                echo "    Configured stitch extension to use ADC with Project ID: $PROJECT_ID"
+            fi
+        fi
     fi
 else
     echo "  WARNING: No STITCH_API_KEY in .env"

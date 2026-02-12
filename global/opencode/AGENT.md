@@ -32,7 +32,7 @@ agent-browser install  # Download Chromium
 ```bash
 agent-browser open http://localhost:3000/path
 agent-browser snapshot -i          # Get interactive elements
-agent-browser screenshot ./test.png
+agent-browser screenshot ~/model-set/agent-browser/screenshots/test.png
 agent-browser click @e1            # Interact by ref
 agent-browser close
 ```
@@ -43,7 +43,7 @@ agent-browser open <url>           # Navigate
 agent-browser snapshot -i          # Interactive elements w/ refs
 agent-browser click @e1            # Click by ref
 agent-browser fill @e2 "text"      # Fill input
-agent-browser screenshot ./path    # Capture
+agent-browser screenshot ~/model-set/agent-browser/screenshots/name.png  # Capture
 agent-browser wait --network       # Wait for API calls
 agent-browser close                # Done
 ```

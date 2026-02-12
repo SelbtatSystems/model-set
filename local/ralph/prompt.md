@@ -141,7 +141,7 @@ You are running with `--dangerously-skip-permissions`. Execute all commands with
 2. Wait for service to be healthy
 3. Navigate: agent-browser open http://localhost:<PORT>/...
 4. Snapshot: agent-browser snapshot -i
-5. Screenshot: agent-browser screenshot ./test.png
+5. Screenshot: agent-browser screenshot ~/model-set/agent-browser/screenshots/test.png
 6. Test interactions: agent-browser click @e1, agent-browser fill @e2 "text"
 7. Verify connectivity (see below)
 8. Close: agent-browser close

@@ -61,6 +61,21 @@ try {
     Write-Host "    Installed!" -ForegroundColor Green
 }
 
+# agent-browser system dependencies (Chromium needs libnspr4, libnss3, etc.)
+Write-Host "  - agent-browser system deps..." -NoNewline
+try {
+    npx playwright install-deps chromium 2>$null
+    Write-Host " installed" -ForegroundColor Green
+} catch {
+    Write-Host " (skipped — may need admin)" -ForegroundColor Yellow
+}
+
+# Ensure screenshots directory exists
+$screenshotDir = Join-Path $RepoDir "agent-browser\screenshots"
+if (-not (Test-Path $screenshotDir)) {
+    New-Item -ItemType Directory -Path $screenshotDir -Force | Out-Null
+}
+
 # Codex CLI
 Write-Host "  - Codex CLI..." -NoNewline
 try {

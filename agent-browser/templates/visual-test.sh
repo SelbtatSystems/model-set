@@ -7,6 +7,8 @@ set -euo pipefail
 URL="${1:-http://localhost:3101}"
 NAME="${2:-test}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+SCREENSHOT_DIR="$HOME/model-set/agent-browser/screenshots"
+mkdir -p "$SCREENSHOT_DIR"
 
 echo "Testing: $URL"
 
@@ -21,11 +23,11 @@ echo "=== Page Structure ==="
 agent-browser snapshot -i
 
 # Desktop screenshot (1440px)
-agent-browser screenshot "./screenshots/${NAME}_desktop_${TIMESTAMP}.png"
+agent-browser screenshot "${SCREENSHOT_DIR}/${NAME}_desktop_${TIMESTAMP}.png"
 
 # Optional: Mobile viewport
 # agent-browser resize 375 812
-# agent-browser screenshot "./screenshots/${NAME}_mobile_${TIMESTAMP}.png"
+# agent-browser screenshot "${SCREENSHOT_DIR}/${NAME}_mobile_${TIMESTAMP}.png"
 
 # Get page title for verification
 echo "=== Page Title ==="
@@ -34,4 +36,4 @@ agent-browser get title
 # Close browser
 agent-browser close
 
-echo "Done: screenshots saved to ./screenshots/"
+echo "Done: screenshots saved to $SCREENSHOT_DIR/"

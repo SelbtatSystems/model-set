@@ -1,10 +1,4 @@
 {
-  "enableAllProjectMcpServers": true,
-  "enabledMcpjsonServers": [
-    "stitch",
-    "context7",
-    "aiguide"
-  ],
   "permissions": {
     "allow": [
       "mcp__stitch__create_project",
@@ -61,7 +55,14 @@
       "Bash(npx *)",
       "Bash(pnpm *)",
       "Bash(yarn *)",
-      "Bash(bun *)"
+      "Bash(bun *)",
+      "Bash(git commit:*)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "stitch",
+    "context7",
+    "aiguide"
+  ]
 }

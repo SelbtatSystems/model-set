@@ -7,15 +7,6 @@ approval_policy = "on-request"
 
 # MCP Servers - Global (always available)
 
-[mcp_servers.stitch]
-command = "npx"
-args = ["-y", "stitch-mcp-auto"]
-env = { GOOGLE_CLOUD_PROJECT = "${GOOGLE_CLOUD_PROJECT}" }
-
 [mcp_servers.context7]
 url = "https://mcp.context7.com/mcp"
 http_headers = { "CONTEXT7_API_KEY" = "${CONTEXT7_API_KEY}" }
-
-[mcp_servers.aiguide]
-command = "npx"
-args = ["-y", "@anthropic/pg-aiguide-mcp"]

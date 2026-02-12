@@ -10,14 +10,40 @@
 # Local settings with permissions
 **/settings.local.json
 
-# Claude Code session data
-.claude/projects/
-.claude/statsig/
-.claude/todos/
-.claude/*.log
+# Credentials & auth tokens
+**/.credentials.json
+**/auth.json
+**/oauth_creds.json
+**/google_accounts.json
 
-# Codex generated config (contains secrets from .env substitution)
+# Claude Code runtime data
+global/claude/cache/
+global/claude/debug/
+global/claude/file-history/
+global/claude/history.jsonl
+global/claude/projects/
+global/claude/shell-snapshots/
+global/claude/statsig/
+global/claude/stats-cache.json
+global/claude/todos/
+
+# Codex runtime data
+global/codex/.personality_migration
 global/codex/config.toml
+global/codex/history.jsonl
+global/codex/log/
+global/codex/models_cache.json
+global/codex/sessions/
+global/codex/tmp/
+global/codex/version.json
+
+# Gemini runtime data
+global/gemini/state.json
+global/gemini/trustedFolders.json
+global/gemini/tmp/
+
+# Agent-browser screenshots (generated output)
+agent-browser/screenshots/*.png
 
 # OS files
 .DS_Store

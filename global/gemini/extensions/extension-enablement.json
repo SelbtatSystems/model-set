@@ -1,0 +1,7 @@
+{
+  "Stitch": {
+    "overrides": [
+      "/home/arlo/*"
+    ]
+  }
+}

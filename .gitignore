@@ -62,4 +62,4 @@ node_modules/
 ralph/scratchpad/
 
 # Old files
-_archive
+_archive__pycache__/

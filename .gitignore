@@ -62,4 +62,7 @@ node_modules/
 ralph/scratchpad/
 
 # Old files
-_archive__pycache__/
+_archive
+
+# Python cache
+__pycache__/

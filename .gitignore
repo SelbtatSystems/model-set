@@ -26,6 +26,8 @@ global/claude/statsig/
 global/claude/paste-cache/
 global/claude/stats-cache.json
 global/claude/todos/
+global/claude/plans/
+global/claude/tasks/
 
 # Codex runtime data
 global/codex/.personality_migration
@@ -36,6 +38,7 @@ global/codex/models_cache.json
 global/codex/sessions/
 global/codex/tmp/
 global/codex/version.json
+global/codex/shell_snapshots/
 
 # Gemini runtime data
 global/gemini/state.json
@@ -43,7 +46,7 @@ global/gemini/trustedFolders.json
 global/gemini/tmp/
 
 # Agent-browser screenshots (generated output)
-agent-browser/screenshots/*.png
+skills/agent-browser/screenshots/*.png
 
 # OS files
 .DS_Store

@@ -1,6 +1,6 @@
 # model-set
 
-Centralized configuration for AI coding assistants: Claude Code, Gemini CLI, open-code, and OpenAI Codex CLI.
+Centralized configuration for AI coding assistants: Claude Code, Gemini CLI, OpenCode, and OpenAI Codex CLI.
 
 ## Quick Start
 
@@ -8,81 +8,123 @@ Centralized configuration for AI coding assistants: Claude Code, Gemini CLI, ope
 
 ```bash
 # Clone the repo
-git clone https://github.com/youruser/model-set.git ~/model-set
+git clone https://github.com/SelbtatSystems/model-set.git ~/model-set
 cd ~/model-set
 
-# Run setup (Windows)
-.\scripts\setup.ps1
+# Copy and fill in your API keys
+cp .env.example .env
+code .env
 
 # Run setup (macOS/Linux)
 ./scripts/setup.sh
+
+# Run setup (Windows)
+.\scripts\setup.ps1
 ```
 
 The setup script will:
-1. Install/update CLI tools (Claude Code, Gemini CLI, open-code, Codex CLI, agent-browser)
-2. Create symlinks from `~/.claude`, `~/.gemini`, `~/.opencode`, `~/.codex` to this repo
-3. Generate `~/.mcp.json` and `~/.codex/config.toml` from templates (if `.env` exists)
-
-### Configure API Keys
-
-```bash
-# Copy the example env file
-cp .env.example .env
-
-# Edit with your API keys
-code .env  # or your editor
-
-# Re-run setup to generate MCP config
-./scripts/setup.sh
-```
+1. Install/update CLI tools (Claude Code, Gemini CLI, OpenCode, Codex CLI, agent-browser)
+2. Create symlinks from `~/.claude`, `~/.gemini`, `~/.opencode`, `~/.codex` → this repo
+3. Install the Stitch extension for Gemini CLI with API key auth (`STITCH_API_KEY`)
+4. Generate `~/.mcp.json` and `~/.codex/config.toml` from templates
 
 ### Apply to a Project
 
 ```bash
-# Apply Claude config + ralph to a project
+# Apply config + ralph to a project
 ./scripts/apply-local.sh ./my-project --tool claude
-
-# Apply Codex config + ralph to a project
-./scripts/apply-local.sh ./my-project --tool codex
 
 # Or on Windows
 .\scripts\apply-local.ps1 -ProjectDir .\my-project -Tool claude
-.\scripts\apply-local.ps1 -ProjectDir .\my-project -Tool codex
 ```
 
 ## Directory Structure
 
 ```
 model-set/
-├── .agents/skills/       # Shared skills (Stitch integration)
-├── agent-browser/        # Browser testing skill
+├── skills/               # Shared skills — available to ALL AI tools
+│   ├── agent-browser/    # Browser testing skill + screenshot storage
+│   ├── composition-patterns/   # React composition patterns
+│   ├── design-md/        # Generate design documents
+│   ├── enhance-prompt/   # Improve prompts for Stitch
+│   ├── page-redesign/    # Redesign pages via Stitch
+│   ├── ralph-plan/       # Sprint planning from PRDs
+│   ├── react-best-practices/   # React/Next.js performance (Vercel)
+│   ├── react-components/ # Generate React components via Stitch
+│   ├── react-native-skills/    # React Native/Expo best practices (Vercel)
+│   ├── stitch-loop/      # Iterative Stitch design workflow
+│   ├── web-design-guidelines/  # UI/accessibility compliance (Vercel)
+│   └── .system/          # Skill installer utilities
 ├── global/               # Symlinked to ~/
-│   ├── claude/           # -> ~/.claude
-│   ├── codex/            # -> ~/.codex
-│   ├── gemini/           # -> ~/.gemini
-│   ├── opencode/         # -> ~/.opencode
+│   ├── claude/           # → ~/.claude
+│   ├── codex/            # → ~/.codex
+│   ├── gemini/           # → ~/.gemini
+│   ├── opencode/         # → ~/.opencode
 │   └── mcp/              # MCP templates
 ├── local/                # Project templates (copied, not symlinked)
 │   ├── claude/
 │   ├── codex/
 │   ├── gemini/
 │   └── opencode/
-├── ralph/                # Autonomous coding agent
-├── scripts/              # Setup scripts
-└── skills/               # Alias of .agents/skills
+├── scripts/              # Setup scripts (setup.sh, setup.ps1)
+└── local/ralph/          # Autonomous coding agent templates
 ```
 
-## Global vs Local Configs
+## Skills
 
-### Global (Symlinked)
-- Settings, permissions, themes
-- Shared skills (.agents/skills)
-- MCP servers that apply everywhere (stitch, context7, aiguide)
+All skills live in `skills/` and are shared across every AI tool via symlinks:
 
-### Local (Copied per-project)
-- CLAUDE.md / GEMINI.md / AGENT.md / AGENTS.md context files
-- Project-specific MCP servers (postgres, redis)
-- Ralph autonomous agent
+```
+~/.claude/skills   → model-set/skills/
+~/.gemini/skills   → model-set/skills/
+~/.opencode/skills → model-set/skills/
+~/.codex/skills    → model-set/skills/
+```
+
+### Available Skills
+
+| Skill | Description |
+|-------|-------------|
+| `agent-browser` | Browser automation for visual testing after frontend changes |
+| `composition-patterns` | React composition patterns (compound components, context, render props) |
+| `design-md` | Analyze Stitch projects and generate DESIGN.md |
+| `enhance-prompt` | Transform vague UI ideas into polished Stitch prompts |
+| `page-redesign` | Redesign existing pages via Stitch generation |
+| `ralph-plan` | Create sprint plans from PRD files |
+| `react-best-practices` | React/Next.js performance optimization (Vercel Engineering) |
+| `react-components` | Generate React components from Stitch designs |
+| `react-native-skills` | React Native and Expo best practices (Vercel Engineering) |
+| `stitch-loop` | Iterative website building with Stitch |
+| `web-design-guidelines` | Review UI for Web Interface Guidelines compliance |
+
+### Adding New Skills
+
+```bash
+# Install from GitHub (e.g. from vercel-labs/agent-skills)
+cd skills/.system/skill-installer/scripts
+python3 install-skill-from-github.py --repo vercel-labs/agent-skills --path skills/your-skill
+
+# Or create manually
+mkdir skills/your-skill
+# Add SKILL.md with YAML front matter:
+# ---
+# name: your-skill
+# description: What it does and when to use it
+# allowed-tools: Bash Read Write
+# ---
+```
+
+### agent-browser
+
+Browser automation CLI for visual testing. Screenshots save to `skills/agent-browser/screenshots/`.
+
+```bash
+agent-browser open http://localhost:3000/path
+agent-browser snapshot -i          # Get interactive elements with refs
+agent-browser screenshot ~/model-set/skills/agent-browser/screenshots/test.png
+agent-browser click @e1            # Interact by ref
+agent-browser close
+```
 
 ## MCP Servers
 
@@ -99,34 +141,36 @@ model-set/
 | postgres | Database queries and schema management |
 | redis | Cache operations |
 
-## Skills
+## Stitch (Gemini CLI Extension)
 
-### Shared Skills (.agents/skills)
-- `design-md/` - Generate design documents
-- `enhance-prompt/` - Improve prompts
-- `react-components/` - Generate React components via Stitch
-- `stitch-loop/` - Iterative Stitch design workflow
-
-### agent-browser
-Browser automation for visual testing after frontend changes.
+The Stitch extension is installed at `~/.gemini/extensions/Stitch/` and configured via `STITCH_API_KEY` in `.env`. The setup script handles installation and API key configuration automatically.
 
 ```bash
-agent-browser open http://localhost:3000/path
-agent-browser snapshot -i          # Get interactive elements
-agent-browser screenshot ~/model-set/skills/agent-browser/screenshots/test.png
-agent-browser click @e1            # Interact by ref
-agent-browser close
+# Manual install if needed
+gemini extensions install https://github.com/gemini-cli-extensions/stitch --auto-update
 ```
+
+`gemini-extension.json` is generated at setup time from the API key template and is not tracked in git.
+
+## Global vs Local Configs
+
+### Global (Symlinked)
+- Settings, permissions, themes
+- Shared skills (`skills/`)
+- MCP servers that apply everywhere (stitch, context7, aiguide)
+
+### Local (Copied per-project)
+- CLAUDE.md / GEMINI.md / AGENT.md / AGENTS.md context files
+- Project-specific MCP servers (postgres, redis)
+- Ralph autonomous agent
 
 ## Codex CLI Notes
 
-Codex CLI uses different conventions from the other tools:
-- **Global config**: `~/.codex/config.toml` (TOML format, generated from template by setup)
-- **Global instructions**: `~/.codex/AGENTS.md` (Markdown)
-- **Project instructions**: `AGENTS.md` at project root (not in a subdirectory)
-- **Project config**: `.codex/config.toml` for project-specific settings
+- **Global config**: `~/.codex/config.toml` (TOML format, generated from template)
+- **Global instructions**: `~/.codex/AGENTS.md`
+- **Project instructions**: `AGENTS.md` at project root
 - **Auth**: Run `codex login` for OAuth, or set `OPENAI_API_KEY` for API key auth
-- **MCP**: Configured in `config.toml` `[mcp_servers.*]` sections (not separate .mcp.json)
+- **MCP**: Configured in `config.toml` `[mcp_servers.*]` sections
 
 ## Ralph (Autonomous Agent)
 
@@ -134,51 +178,21 @@ Ralph is an autonomous coding agent that works through user stories in a loop.
 
 ### Usage
 1. Edit `ralph/plan.md` with your tasks
-2. Run the loop with your preferred tool:
+2. Run with your preferred tool:
 ```bash
 bash ralph/claude_ralph.sh    # Claude Code
 bash ralph/gemini_ralph.sh    # Gemini CLI
 bash ralph/opencode_ralph.sh  # OpenCode
 bash ralph/codex_ralph.sh     # Codex CLI
 ```
-3. Ralph will:
-   - Pick the highest priority incomplete story
-   - Implement it
-   - Run quality checks
-   - Commit if passing
-   - Update progress.txt
-   - Repeat until all stories pass
-
-### PRD Format
-```json
-{
-  "projectName": "My Project",
-  "branchName": "ralph/feature-name",
-  "userStories": [
-    {
-      "id": "US-001",
-      "title": "Add login form",
-      "description": "As a user, I want to log in",
-      "acceptanceCriteria": ["Form validates email", "Shows error on failure"],
-      "priority": 1,
-      "passes": false
-    }
-  ]
-}
-```
-
-## Adding New Skills
-
-1. Create a directory in `.agents/skills/your-skill/`
-2. Add `SKILL.md` with instructions
-3. The skill will be available in all tools via symlinks
+3. Ralph picks the highest priority incomplete story, implements it, runs quality checks, commits, and repeats.
 
 ## Updating
 
 ```bash
 cd ~/model-set
 git pull
-./scripts/setup.sh  # Re-run to update symlinks if needed
+./scripts/setup.sh  # Re-run to update symlinks and regenerate configs
 ```
 
 ## Troubleshooting
@@ -194,5 +208,8 @@ Run PowerShell as Administrator, or enable Developer Mode in Windows Settings.
 ### Skills not appearing
 Verify symlinks exist:
 ```bash
-ls -la ~/.claude/skills  # Should point to model-set/.agents/skills
+ls -la ~/.claude/skills  # Should point to model-set/skills/
 ```
+
+### Stitch extension not working in Gemini CLI
+Re-run setup — it will regenerate `gemini-extension.json` with your `STITCH_API_KEY`.

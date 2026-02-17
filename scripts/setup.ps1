@@ -71,7 +71,7 @@ try {
 }
 
 # Ensure screenshots directory exists
-$screenshotDir = Join-Path $RepoDir "agent-browser\screenshots"
+$screenshotDir = Join-Path $RepoDir "skills\agent-browser\screenshots"
 if (-not (Test-Path $screenshotDir)) {
     New-Item -ItemType Directory -Path $screenshotDir -Force | Out-Null
 }
@@ -90,20 +90,47 @@ try {
 Write-Host ""
 
 # =====================================================
-# 2. Setup Stitch MCP (OAuth-based)
+# 2. Setup Stitch MCP (API key-based)
 # =====================================================
 Write-Host "Setting up Stitch MCP..." -ForegroundColor Yellow
-Write-Host "  This will open a browser for Google OAuth authentication." -ForegroundColor White
-Write-Host ""
 
-$setupStitch = Read-Host "  Run Stitch MCP setup now? [y/N]"
+$EnvFile = Join-Path $RepoDir ".env"
+$StitchKey = ""
+if (Test-Path $EnvFile) {
+    $StitchKey = (Get-Content $EnvFile | Where-Object { $_ -match "^STITCH_API_KEY=" }) -replace "^STITCH_API_KEY=", "" | ForEach-Object { $_.Trim() }
+}
 
-if ($setupStitch -match "^[Yy]$") {
-    Write-Host "  Running stitch-mcp-auto-setup..." -ForegroundColor Yellow
-    npx stitch-mcp-auto-setup
-    Write-Host "  Stitch MCP setup complete!" -ForegroundColor Green
+if ($StitchKey -and $StitchKey -ne "AQ.STITCH_API_KEY") {
+    Write-Host "  Stitch API key found in .env" -ForegroundColor Green
+
+    # Add Stitch to Claude Code (HTTP transport, user scope)
+    try {
+        claude mcp add stitch --transport http https://stitch.googleapis.com/mcp `
+            --header "X-Goog-Api-Key: $StitchKey" -s user 2>$null
+        Write-Host "    Added stitch to Claude Code (user scope)" -ForegroundColor Green
+    } catch {
+        Write-Host "    Warning: Failed to add stitch to Claude Code" -ForegroundColor Yellow
+    }
+
+    # Install Stitch extension for Gemini CLI and configure with API key
+    try {
+        gemini extensions install https://github.com/gemini-cli-extensions/stitch --auto-update 2>$null
+        Write-Host "    Installed stitch extension for Gemini CLI" -ForegroundColor Green
+    } catch {
+        Write-Host "    Stitch extension already installed or updated" -ForegroundColor Yellow
+    }
+
+    $ExtDir = Join-Path $HomeDir ".gemini\extensions\Stitch"
+    $ApiKeyTemplate = Join-Path $ExtDir "gemini-extension-apikey.json"
+    $ExtConfig = Join-Path $ExtDir "gemini-extension.json"
+    if (Test-Path $ApiKeyTemplate) {
+        (Get-Content $ApiKeyTemplate -Raw) -replace "YOUR_API_KEY", $StitchKey | Set-Content $ExtConfig
+        Write-Host "    Configured stitch extension with API key auth" -ForegroundColor Green
+    }
 } else {
-    Write-Host "  Skipped. Run later with: npx stitch-mcp-auto-setup" -ForegroundColor Yellow
+    Write-Host "  WARNING: No STITCH_API_KEY in .env" -ForegroundColor Yellow
+    Write-Host "  Add your Stitch API key to $RepoDir\.env" -ForegroundColor Yellow
+    Write-Host "  Get one at: https://aistudio.google.com/apikey" -ForegroundColor Yellow
 }
 
 Write-Host ""
@@ -167,10 +194,10 @@ New-SymlinkSafe -Link "$HomeDir\.opencode" -Target "$RepoDir\global\opencode"
 New-SymlinkSafe -Link "$HomeDir\.codex" -Target "$RepoDir\global\codex"
 
 # Skills symlinks (shared across all tools)
-New-SymlinkSafe -Link "$RepoDir\global\claude\skills" -Target "$RepoDir\.agents\skills"
-New-SymlinkSafe -Link "$RepoDir\global\gemini\skills" -Target "$RepoDir\.agents\skills"
-New-SymlinkSafe -Link "$RepoDir\global\opencode\skills" -Target "$RepoDir\.agents\skills"
-New-SymlinkSafe -Link "$RepoDir\global\codex\skills" -Target "$RepoDir\.agents\skills"
+New-SymlinkSafe -Link "$RepoDir\global\claude\skills" -Target "$RepoDir\skills"
+New-SymlinkSafe -Link "$RepoDir\global\gemini\skills" -Target "$RepoDir\skills"
+New-SymlinkSafe -Link "$RepoDir\global\opencode\skills" -Target "$RepoDir\skills"
+New-SymlinkSafe -Link "$RepoDir\global\codex\skills" -Target "$RepoDir\skills"
 
 Write-Host ""
 

@@ -44,6 +44,7 @@ global/codex/shell_snapshots/
 global/gemini/state.json
 global/gemini/trustedFolders.json
 global/gemini/tmp/
+global/gemini/extensions/Stitch/gemini-extension.json
 
 # Agent-browser screenshots (generated output)
 skills/agent-browser/screenshots/*.png

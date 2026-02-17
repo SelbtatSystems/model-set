@@ -72,7 +72,7 @@ else
 fi
 
 # Ensure screenshots directory exists
-mkdir -p "$REPO_DIR/agent-browser/screenshots"
+mkdir -p "$REPO_DIR/skills/agent-browser/screenshots"
 
 # Codex CLI
 echo -n "  - Codex CLI..."
@@ -105,18 +105,15 @@ if [ -n "$STITCH_KEY" ] && [ "$STITCH_KEY" != "AQ.STITCH_API_KEY" ]; then
 
     # Install Stitch extension for Gemini CLI
     if command -v gemini &> /dev/null; then
-        gemini extensions install https://github.com/gemini-cli-extensions/stitch 2>/dev/null && \
-            echo "    Added stitch extension to Gemini CLI" || \
-            echo "    Warning: Failed to add stitch extension to Gemini CLI"
-        
-        # Configure extension to use ADC with the correct Project ID
-        PROJECT_ID=$(grep '^GOOGLE_CLOUD_PROJECT=' "$REPO_DIR/.env" 2>/dev/null | cut -d'=' -f2- | xargs)
-        if [ -n "$PROJECT_ID" ]; then
-            EXT_DIR="$HOME_DIR/.gemini/extensions/Stitch"
-            if [ -f "$EXT_DIR/gemini-extension-adc.json" ]; then
-                sed "s/YOUR_PROJECT_ID/$PROJECT_ID/g" "$EXT_DIR/gemini-extension-adc.json" > "$EXT_DIR/gemini-extension.json"
-                echo "    Configured stitch extension to use ADC with Project ID: $PROJECT_ID"
-            fi
+        gemini extensions install https://github.com/gemini-cli-extensions/stitch --auto-update 2>/dev/null && \
+            echo "    Installed stitch extension for Gemini CLI" || \
+            echo "    Stitch extension already installed or updated"
+
+        # Configure extension to use API key auth from STITCH_API_KEY
+        EXT_DIR="$HOME_DIR/.gemini/extensions/Stitch"
+        if [ -f "$EXT_DIR/gemini-extension-apikey.json" ]; then
+            sed "s/YOUR_API_KEY/$STITCH_KEY/g" "$EXT_DIR/gemini-extension-apikey.json" > "$EXT_DIR/gemini-extension.json"
+            echo "    Configured stitch extension with API key auth"
         fi
     fi
 else
@@ -173,10 +170,10 @@ create_symlink "$HOME_DIR/.opencode" "$REPO_DIR/global/opencode"
 create_symlink "$HOME_DIR/.codex" "$REPO_DIR/global/codex"
 
 # Skills symlinks (shared across all tools)
-create_symlink "$REPO_DIR/global/claude/skills" "$REPO_DIR/.agents/skills"
-create_symlink "$REPO_DIR/global/gemini/skills" "$REPO_DIR/.agents/skills"
-create_symlink "$REPO_DIR/global/opencode/skills" "$REPO_DIR/.agents/skills"
-create_symlink "$REPO_DIR/global/codex/skills" "$REPO_DIR/.agents/skills"
+create_symlink "$REPO_DIR/global/claude/skills" "$REPO_DIR/skills"
+create_symlink "$REPO_DIR/global/gemini/skills" "$REPO_DIR/skills"
+create_symlink "$REPO_DIR/global/opencode/skills" "$REPO_DIR/skills"
+create_symlink "$REPO_DIR/global/codex/skills" "$REPO_DIR/skills"
 
 echo ""
 

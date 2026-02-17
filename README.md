@@ -22,11 +22,14 @@ code .env
 .\scripts\setup.ps1
 ```
 
+**Prerequisites:** Python 3 must be installed and on your `PATH` — required by skill scripts (`skill-creator`, `senior-backend`, `skill-installer`). The setup script checks this and exits with instructions if missing.
+
 The setup script will:
-1. Install/update CLI tools (Claude Code, Gemini CLI, OpenCode, Codex CLI, agent-browser)
-2. Create symlinks from `~/.claude`, `~/.gemini`, `~/.opencode`, `~/.codex` → this repo
-3. Install the Stitch extension for Gemini CLI with API key auth (`STITCH_API_KEY`)
-4. Generate `~/.mcp.json` and `~/.codex/config.toml` from templates
+1. Check Python 3 is available (exits with install instructions if not)
+2. Install/update CLI tools (Claude Code, Gemini CLI, OpenCode, Codex CLI, agent-browser)
+3. Create symlinks from `~/.claude`, `~/.gemini`, `~/.opencode`, `~/.codex` → this repo
+4. Install the Stitch extension for Gemini CLI with API key auth (`STITCH_API_KEY`)
+5. Generate `~/.mcp.json` and `~/.codex/config.toml` from templates
 
 ### Apply to a Project
 
@@ -52,9 +55,11 @@ model-set/
 │   ├── react-best-practices/   # React/Next.js performance (Vercel)
 │   ├── react-components/ # Generate React components via Stitch
 │   ├── react-native-skills/    # React Native/Expo best practices (Vercel)
+│   ├── senior-backend/   # Backend dev (Node, Go, Python, Postgres, GraphQL)
+│   ├── skill-creator/    # Create and package new skills (requires Python 3)
 │   ├── stitch-loop/      # Iterative Stitch design workflow
 │   ├── web-design-guidelines/  # UI/accessibility compliance (Vercel)
-│   └── .system/          # Skill installer utilities
+│   └── .system/          # Skill installer utilities (requires Python 3)
 ├── global/               # Symlinked to ~/
 │   ├── claude/           # → ~/.claude
 │   ├── codex/            # → ~/.codex
@@ -94,8 +99,12 @@ All skills live in `skills/` and are shared across every AI tool via symlinks:
 | `react-best-practices` | React/Next.js performance optimization (Vercel Engineering) |
 | `react-components` | Generate React components from Stitch designs |
 | `react-native-skills` | React Native and Expo best practices (Vercel Engineering) |
+| `senior-backend` | Backend APIs, DB optimization, security — Node.js, Go, Python, Postgres, GraphQL ¹ |
+| `skill-creator` | Create, package, and validate new Claude Code skills ¹ |
 | `stitch-loop` | Iterative website building with Stitch |
 | `web-design-guidelines` | Review UI for Web Interface Guidelines compliance |
+
+¹ Scripts in these skills require **Python 3** on your `PATH`.
 
 ### Adding New Skills
 
@@ -213,3 +222,12 @@ ls -la ~/.claude/skills  # Should point to model-set/skills/
 
 ### Stitch extension not working in Gemini CLI
 Re-run setup — it will regenerate `gemini-extension.json` with your `STITCH_API_KEY`.
+
+### Skill scripts failing with "python3 not found"
+Install Python 3 and ensure it's on your `PATH`:
+- **macOS**: `brew install python3`
+- **Ubuntu/Debian**: `sudo apt install python3`
+- **Windows**: `winget install Python.Python.3` (check "Add to PATH" during install)
+- **All platforms**: https://www.python.org/downloads/
+
+Re-run setup after installing — it verifies Python 3 before proceeding.

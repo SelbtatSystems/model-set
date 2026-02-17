@@ -12,6 +12,50 @@ Write-Host "===============" -ForegroundColor Cyan
 Write-Host ""
 
 # =====================================================
+# 0. Check Prerequisites
+# =====================================================
+Write-Host "Checking prerequisites..." -ForegroundColor Yellow
+
+# Python 3 (required for skill scripts)
+Write-Host "  - Python 3..." -NoNewline
+$PythonCmd = $null
+try {
+    $pyVer = python3 --version 2>$null
+    if ($pyVer -match "Python 3") {
+        Write-Host " ($pyVer)" -ForegroundColor Green
+        $PythonCmd = "python3"
+    }
+} catch {}
+
+if (-not $PythonCmd) {
+    try {
+        $pyVer = python --version 2>$null
+        if ($pyVer -match "Python 3") {
+            Write-Host " ($pyVer via 'python')" -ForegroundColor Green
+            $PythonCmd = "python"
+        }
+    } catch {}
+}
+
+if (-not $PythonCmd) {
+    Write-Host "" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  ERROR: Python 3 not found." -ForegroundColor Red
+    Write-Host "  Skill scripts (skill-creator, senior-backend, skill-installer) require Python 3." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  Install Python 3:" -ForegroundColor Yellow
+    Write-Host "    winget: winget install Python.Python.3"
+    Write-Host "    Or download from: https://www.python.org/downloads/"
+    Write-Host ""
+    Write-Host "  Make sure to check 'Add Python to PATH' during installation." -ForegroundColor Yellow
+    Write-Host "  After installing, restart this terminal and re-run setup." -ForegroundColor Yellow
+    Write-Host ""
+    exit 1
+}
+
+Write-Host ""
+
+# =====================================================
 # 1. Install/Update CLI Tools
 # =====================================================
 Write-Host "Installing/Updating CLI tools..." -ForegroundColor Yellow

@@ -14,6 +14,40 @@ echo "==============="
 echo ""
 
 # =====================================================
+# 0. Check Prerequisites
+# =====================================================
+echo "Checking prerequisites..."
+
+# Python 3 (required for skill scripts)
+echo -n "  - Python 3..."
+PYTHON_CMD=""
+if command -v python3 &> /dev/null; then
+    PYTHON_VER=$(python3 --version 2>&1)
+    echo " ($PYTHON_VER)"
+    PYTHON_CMD="python3"
+elif command -v python &> /dev/null && python --version 2>&1 | grep -q "Python 3"; then
+    PYTHON_VER=$(python --version 2>&1)
+    echo " ($PYTHON_VER via 'python')"
+    PYTHON_CMD="python"
+else
+    echo ""
+    echo ""
+    echo "  ERROR: Python 3 not found."
+    echo "  Skill scripts (skill-creator, senior-backend, skill-installer) require Python 3."
+    echo ""
+    echo "  Install Python 3:"
+    echo "    macOS:  brew install python3"
+    echo "    Ubuntu: sudo apt install python3"
+    echo "    Other:  https://www.python.org/downloads/"
+    echo ""
+    echo "  After installing, ensure 'python3' is on your PATH, then re-run setup."
+    echo ""
+    exit 1
+fi
+
+echo ""
+
+# =====================================================
 # 1. Install/Update CLI Tools
 # =====================================================
 echo "Installing/Updating CLI tools..."

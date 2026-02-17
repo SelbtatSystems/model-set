@@ -22,10 +22,8 @@ code .env
 .\scripts\setup.ps1
 ```
 
-**Prerequisites:** Python 3 must be installed and on your `PATH` — required by skill scripts (`skill-creator`, `senior-backend`, `skill-installer`). The setup script checks this and exits with instructions if missing.
-
 The setup script will:
-1. Check Python 3 is available (exits with install instructions if not)
+1. Auto-install Python 3 if not found (via Homebrew/apt/dnf/winget/direct download)
 2. Install/update CLI tools (Claude Code, Gemini CLI, OpenCode, Codex CLI, agent-browser)
 3. Create symlinks from `~/.claude`, `~/.gemini`, `~/.opencode`, `~/.codex` → this repo
 4. Install the Stitch extension for Gemini CLI with API key auth (`STITCH_API_KEY`)
@@ -224,10 +222,8 @@ ls -la ~/.claude/skills  # Should point to model-set/skills/
 Re-run setup — it will regenerate `gemini-extension.json` with your `STITCH_API_KEY`.
 
 ### Skill scripts failing with "python3 not found"
-Install Python 3 and ensure it's on your `PATH`:
+The setup script auto-installs Python 3, but if you're running a skill script manually:
 - **macOS**: `brew install python3`
 - **Ubuntu/Debian**: `sudo apt install python3`
-- **Windows**: `winget install Python.Python.3` (check "Add to PATH" during install)
+- **Windows**: `winget install Python.Python.3 --silent` then open a new terminal
 - **All platforms**: https://www.python.org/downloads/
-
-Re-run setup after installing — it verifies Python 3 before proceeding.

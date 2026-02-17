@@ -30,19 +30,54 @@ elif command -v python &> /dev/null && python --version 2>&1 | grep -q "Python 3
     echo " ($PYTHON_VER via 'python')"
     PYTHON_CMD="python"
 else
-    echo ""
-    echo ""
-    echo "  ERROR: Python 3 not found."
-    echo "  Skill scripts (skill-creator, senior-backend, skill-installer) require Python 3."
-    echo ""
-    echo "  Install Python 3:"
-    echo "    macOS:  brew install python3"
-    echo "    Ubuntu: sudo apt install python3"
-    echo "    Other:  https://www.python.org/downloads/"
-    echo ""
-    echo "  After installing, ensure 'python3' is on your PATH, then re-run setup."
-    echo ""
-    exit 1
+    echo " not found — attempting auto-install..."
+    INSTALLED=false
+
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS — use Homebrew if available, otherwise install Homebrew first
+        if command -v brew &> /dev/null; then
+            echo "    Installing via Homebrew..."
+            brew install python3 && INSTALLED=true
+        else
+            echo "    Homebrew not found — installing Homebrew first..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && \
+                brew install python3 && INSTALLED=true
+        fi
+    elif command -v apt-get &> /dev/null; then
+        echo "    Installing via apt-get..."
+        sudo apt-get update -qq && sudo apt-get install -y python3 && INSTALLED=true
+    elif command -v dnf &> /dev/null; then
+        echo "    Installing via dnf..."
+        sudo dnf install -y python3 && INSTALLED=true
+    elif command -v yum &> /dev/null; then
+        echo "    Installing via yum..."
+        sudo yum install -y python3 && INSTALLED=true
+    elif command -v pacman &> /dev/null; then
+        echo "    Installing via pacman..."
+        sudo pacman -S --noconfirm python && INSTALLED=true
+    elif command -v zypper &> /dev/null; then
+        echo "    Installing via zypper..."
+        sudo zypper install -y python3 && INSTALLED=true
+    else
+        echo ""
+        echo "  ERROR: Could not auto-install Python 3 — no supported package manager found."
+        echo "  Install manually from https://www.python.org/downloads/ and re-run setup."
+        exit 1
+    fi
+
+    if $INSTALLED; then
+        if command -v python3 &> /dev/null; then
+            PYTHON_VER=$(python3 --version 2>&1)
+            echo "    Installed: $PYTHON_VER"
+            PYTHON_CMD="python3"
+        else
+            echo "  ERROR: Python 3 installed but not found on PATH. Open a new terminal and re-run setup."
+            exit 1
+        fi
+    else
+        echo "  ERROR: Auto-install failed. Install Python 3 manually and re-run setup."
+        exit 1
+    fi
 fi
 
 echo ""

@@ -38,19 +38,60 @@ if (-not $PythonCmd) {
 }
 
 if (-not $PythonCmd) {
-    Write-Host "" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "  ERROR: Python 3 not found." -ForegroundColor Red
-    Write-Host "  Skill scripts (skill-creator, senior-backend, skill-installer) require Python 3." -ForegroundColor Red
-    Write-Host ""
-    Write-Host "  Install Python 3:" -ForegroundColor Yellow
-    Write-Host "    winget: winget install Python.Python.3"
-    Write-Host "    Or download from: https://www.python.org/downloads/"
-    Write-Host ""
-    Write-Host "  Make sure to check 'Add Python to PATH' during installation." -ForegroundColor Yellow
-    Write-Host "  After installing, restart this terminal and re-run setup." -ForegroundColor Yellow
-    Write-Host ""
-    exit 1
+    Write-Host " not found — attempting auto-install..." -ForegroundColor Yellow
+    $Installed = $false
+
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Host "    Installing via winget..." -ForegroundColor Yellow
+        try {
+            winget install Python.Python.3 --silent --accept-source-agreements --accept-package-agreements
+            $Installed = $true
+        } catch {
+            Write-Host "    winget install failed." -ForegroundColor Yellow
+        }
+    }
+
+    if (-not $Installed -and (Get-Command choco -ErrorAction SilentlyContinue)) {
+        Write-Host "    Installing via Chocolatey..." -ForegroundColor Yellow
+        try {
+            choco install python -y
+            $Installed = $true
+        } catch {
+            Write-Host "    choco install failed." -ForegroundColor Yellow
+        }
+    }
+
+    if (-not $Installed) {
+        Write-Host "    Downloading Python 3 installer from python.org..." -ForegroundColor Yellow
+        $PythonVersion = "3.12.9"
+        $InstallerUrl = "https://www.python.org/ftp/python/$PythonVersion/python-$PythonVersion-amd64.exe"
+        $InstallerPath = "$env:TEMP\python-installer.exe"
+        try {
+            Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerPath -UseBasicParsing
+            # /quiet = no UI, PrependPath=1 = add to PATH, InstallAllUsers=0 = current user only
+            Start-Process -FilePath $InstallerPath -ArgumentList "/quiet PrependPath=1 InstallAllUsers=0" -Wait
+            Remove-Item $InstallerPath -Force -ErrorAction SilentlyContinue
+            $Installed = $true
+        } catch {
+            Write-Host "  ERROR: Could not download Python installer. Install manually from https://www.python.org/downloads/" -ForegroundColor Red
+            exit 1
+        }
+    }
+
+    # Refresh PATH in current session so python3/python is found immediately
+    $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" +
+                [System.Environment]::GetEnvironmentVariable("PATH", "User")
+
+    # Verify install succeeded
+    $pyVer = python --version 2>$null
+    if ($pyVer -match "Python 3") {
+        Write-Host "    Installed: $pyVer" -ForegroundColor Green
+        $PythonCmd = "python"
+    } else {
+        Write-Host "  ERROR: Python 3 installed but not found on PATH." -ForegroundColor Red
+        Write-Host "  Please open a new terminal and re-run setup." -ForegroundColor Yellow
+        exit 1
+    }
 }
 
 Write-Host ""

@@ -27,7 +27,7 @@ The setup script will:
 2. Install/update CLI tools (Claude Code, Gemini CLI, OpenCode, Codex CLI, agent-browser)
 3. Create symlinks from `~/.claude`, `~/.gemini`, `~/.opencode`, `~/.codex` → this repo
 4. Install the Stitch extension for Gemini CLI with API key auth (`STITCH_API_KEY`)
-5. Generate `~/.mcp.json` and `~/.codex/config.toml` from templates
+5. Generate `~/.mcp.json` from template (skipped if file already exists) and `~/.codex/config.toml`
 
 ### Apply to a Project
 
@@ -209,8 +209,9 @@ Run PowerShell as Administrator, or enable Developer Mode in Windows Settings.
 
 ### MCP servers not connecting
 1. Check `.env` has correct API keys
-2. Re-run setup to regenerate `~/.mcp.json`
-3. Restart the CLI tool
+2. If `~/.mcp.json` is missing, re-run setup to generate it
+3. If `~/.mcp.json` exists but is stale, delete it and re-run setup
+4. Restart the CLI tool
 
 ### Skills not appearing
 Verify symlinks exist:

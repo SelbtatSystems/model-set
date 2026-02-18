@@ -255,26 +255,30 @@ MCP_TEMPLATE="$REPO_DIR/global/mcp/mcp.json.template"
 MCP_OUTPUT="$HOME_DIR/.mcp.json"
 
 if [ -f "$ENV_FILE" ]; then
-    # Load .env file and substitute in template
-    cp "$MCP_TEMPLATE" "$MCP_OUTPUT"
+    if [ -f "$MCP_OUTPUT" ]; then
+        echo "  Skipped: $MCP_OUTPUT already exists (not overwriting)"
+    else
+        # Load .env file and substitute in template
+        cp "$MCP_TEMPLATE" "$MCP_OUTPUT"
 
-    while IFS='=' read -r key value; do
-        # Skip comments and empty lines
-        [[ $key =~ ^#.*$ ]] && continue
-        [[ -z "$key" ]] && continue
+        while IFS='=' read -r key value; do
+            # Skip comments and empty lines
+            [[ $key =~ ^#.*$ ]] && continue
+            [[ -z "$key" ]] && continue
 
-        # Remove leading/trailing whitespace
-        key=$(echo "$key" | xargs)
-        value=$(echo "$value" | xargs)
+            # Remove leading/trailing whitespace
+            key=$(echo "$key" | xargs)
+            value=$(echo "$value" | xargs)
 
-        # Substitute in output file
-        if [ -n "$value" ]; then
-            sed -i.bak "s|\${$key}|$value|g" "$MCP_OUTPUT"
-        fi
-    done < "$ENV_FILE"
+            # Substitute in output file
+            if [ -n "$value" ]; then
+                sed -i.bak "s|\${$key}|$value|g" "$MCP_OUTPUT"
+            fi
+        done < "$ENV_FILE"
 
-    rm -f "${MCP_OUTPUT}.bak"
-    echo "  Generated: $MCP_OUTPUT"
+        rm -f "${MCP_OUTPUT}.bak"
+        echo "  Generated: $MCP_OUTPUT"
+    fi
 
     # Generate Codex config.toml from template
     CODEX_TEMPLATE="$REPO_DIR/global/codex/config.toml.template"

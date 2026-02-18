@@ -295,7 +295,7 @@ $McpTemplate = Join-Path $RepoDir "global\mcp\mcp.json.template"
 $McpOutput = Join-Path $HomeDir ".mcp.json"
 
 if (Test-Path $EnvFile) {
-    # Load .env file
+    # Load .env file (needed for both mcp.json and codex config)
     $envContent = Get-Content $EnvFile | Where-Object { $_ -match "^\s*[^#]" }
     $envVars = @{}
     foreach ($line in $envContent) {
@@ -304,14 +304,17 @@ if (Test-Path $EnvFile) {
         }
     }
 
-    # Read template and substitute
-    $template = Get-Content $McpTemplate -Raw
-    foreach ($key in $envVars.Keys) {
-        $template = $template -replace "\`$\{$key\}", $envVars[$key]
+    # Generate ~/.mcp.json (only if it doesn't already exist)
+    if (Test-Path $McpOutput) {
+        Write-Host "  Skipped: $McpOutput already exists (not overwriting)" -ForegroundColor Yellow
+    } else {
+        $template = Get-Content $McpTemplate -Raw
+        foreach ($key in $envVars.Keys) {
+            $template = $template -replace "\`$\{$key\}", $envVars[$key]
+        }
+        $template | Set-Content $McpOutput
+        Write-Host "  Generated: $McpOutput" -ForegroundColor Green
     }
-
-    $template | Set-Content $McpOutput
-    Write-Host "  Generated: $McpOutput" -ForegroundColor Green
 
     # Generate Codex config.toml from template
     $CodexTemplate = Join-Path $RepoDir "global\codex\config.toml.template"

@@ -255,34 +255,65 @@ function New-SymlinkSafe {
         }
     }
 
-    # Create parent directory if needed
     $parent = Split-Path -Parent $Link
     if (-not (Test-Path $parent)) {
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
     }
 
-    # Try symlink first, fall back to junction if permissions fail
     try {
         New-Item -ItemType SymbolicLink -Path $Link -Target $Target -Force | Out-Null
         Write-Host "  $Link -> $Target" -ForegroundColor Green
     } catch {
-        # Fall back to junction (doesn't require admin)
         cmd /c mklink /J "$Link" "$Target" 2>$null
         Write-Host "  $Link -> $Target (junction)" -ForegroundColor Green
     }
 }
 
-# Global configs
-New-SymlinkSafe -Link "$HomeDir\.claude" -Target "$RepoDir\global\claude"
-New-SymlinkSafe -Link "$HomeDir\.gemini" -Target "$RepoDir\global\gemini"
-New-SymlinkSafe -Link "$HomeDir\.opencode" -Target "$RepoDir\global\opencode"
-New-SymlinkSafe -Link "$HomeDir\.codex" -Target "$RepoDir\global\codex"
+# Link a tool's config directory.
+# New machine (dir doesn't exist): full symlink → repo/global/<tool>
+# Existing machine (real dir):     skills-only symlink inside existing dir
+function Link-ToolConfig {
+    param (
+        [string]$ConfigDir,   # e.g. ~/.claude
+        [string]$RepoGlobal,  # e.g. repo\global\claude
+        [string]$SkillsSrc    # e.g. repo\skills
+    )
 
-# Skills symlinks (shared across all tools)
-New-SymlinkSafe -Link "$RepoDir\global\claude\skills" -Target "$RepoDir\skills"
-New-SymlinkSafe -Link "$RepoDir\global\gemini\skills" -Target "$RepoDir\skills"
+    if (Test-Path $ConfigDir) {
+        $existing = Get-Item $ConfigDir
+        if ($existing.LinkType -eq "SymbolicLink" -or $existing.LinkType -eq "Junction") {
+            Write-Host "  $ConfigDir -> already linked" -ForegroundColor Green
+        } else {
+            Write-Host "  $ConfigDir already exists — linking skills only" -ForegroundColor Yellow
+            New-SymlinkSafe -Link "$ConfigDir\skills" -Target $SkillsSrc
+        }
+    } else {
+        $parent = Split-Path -Parent $ConfigDir
+        if (-not (Test-Path $parent)) {
+            New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        }
+        try {
+            New-Item -ItemType SymbolicLink -Path $ConfigDir -Target $RepoGlobal -Force | Out-Null
+            Write-Host "  $ConfigDir -> $RepoGlobal" -ForegroundColor Green
+        } catch {
+            cmd /c mklink /J "$ConfigDir" "$RepoGlobal" 2>$null
+            Write-Host "  $ConfigDir -> $RepoGlobal (junction)" -ForegroundColor Green
+        }
+    }
+}
+
+# Always ensure skills symlinks exist inside repo global dirs
+# (used when the full-dir symlink path is taken on a new machine)
+New-SymlinkSafe -Link "$RepoDir\global\claude\skills"   -Target "$RepoDir\skills"
+New-SymlinkSafe -Link "$RepoDir\global\gemini\skills"   -Target "$RepoDir\skills"
 New-SymlinkSafe -Link "$RepoDir\global\opencode\skills" -Target "$RepoDir\skills"
-New-SymlinkSafe -Link "$RepoDir\global\codex\skills" -Target "$RepoDir\skills"
+New-SymlinkSafe -Link "$RepoDir\global\codex\skills"    -Target "$RepoDir\skills"
+
+# Link tool config dirs (smart: full on new machine, skills-only on existing)
+Link-ToolConfig -ConfigDir "$HomeDir\.claude"   -RepoGlobal "$RepoDir\global\claude"   -SkillsSrc "$RepoDir\skills"
+Link-ToolConfig -ConfigDir "$HomeDir\.gemini"   -RepoGlobal "$RepoDir\global\gemini"   -SkillsSrc "$RepoDir\skills"
+Link-ToolConfig -ConfigDir "$HomeDir\.opencode" -RepoGlobal "$RepoDir\global\opencode" -SkillsSrc "$RepoDir\skills"
+Link-ToolConfig -ConfigDir "$HomeDir\.codex"    -RepoGlobal "$RepoDir\global\codex"    -SkillsSrc "$RepoDir\skills"
 
 Write-Host ""
 

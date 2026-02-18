@@ -25,7 +25,9 @@ code .env
 The setup script will:
 1. Auto-install Python 3 if not found (via Homebrew/apt/dnf/winget/direct download)
 2. Install/update CLI tools (Claude Code, Gemini CLI, OpenCode, Codex CLI, agent-browser)
-3. Create symlinks from `~/.claude`, `~/.gemini`, `~/.opencode`, `~/.codex` → this repo
+3. Smart symlinks for `~/.claude`, `~/.gemini`, `~/.opencode`, `~/.codex`:
+   - **New machine** (dir doesn't exist): full symlink → `repo/global/<tool>/`
+   - **Existing machine** (real dir exists): symlink only `<dir>/skills` → `repo/skills/`, leaving all other config untouched
 4. Install the Stitch extension for Gemini CLI with API key auth (`STITCH_API_KEY`)
 5. Generate `~/.mcp.json` from template (skipped if file already exists) and `~/.codex/config.toml`
 
@@ -162,8 +164,8 @@ gemini extensions install https://github.com/gemini-cli-extensions/stitch --auto
 ## Global vs Local Configs
 
 ### Global (Symlinked)
-- Settings, permissions, themes
-- Shared skills (`skills/`)
+- Settings, permissions, themes (full symlink on new machine; skills-only symlink on existing machine)
+- Shared skills (`skills/`) — always linked regardless of machine state
 - MCP servers that apply everywhere (stitch, context7, aiguide)
 
 ### Local (Copied per-project)

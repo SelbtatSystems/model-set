@@ -225,24 +225,43 @@ create_symlink() {
         mv "$link" "${link}.backup"
     fi
 
-    # Create parent directory if needed
     mkdir -p "$(dirname "$link")"
-
     ln -s "$target" "$link"
     echo "  $link -> $target"
 }
 
-# Global configs
-create_symlink "$HOME_DIR/.claude" "$REPO_DIR/global/claude"
-create_symlink "$HOME_DIR/.gemini" "$REPO_DIR/global/gemini"
-create_symlink "$HOME_DIR/.opencode" "$REPO_DIR/global/opencode"
-create_symlink "$HOME_DIR/.codex" "$REPO_DIR/global/codex"
+# Link a tool's config directory.
+# New machine (dir doesn't exist): full symlink → repo/global/<tool>
+# Existing machine (real dir):     skills-only symlink inside existing dir
+link_tool_config() {
+    local config_dir="$1"   # e.g. ~/.claude
+    local repo_global="$2"  # e.g. repo/global/claude
+    local skills_src="$3"   # e.g. repo/skills
 
-# Skills symlinks (shared across all tools)
-create_symlink "$REPO_DIR/global/claude/skills" "$REPO_DIR/skills"
-create_symlink "$REPO_DIR/global/gemini/skills" "$REPO_DIR/skills"
+    if [ -L "$config_dir" ]; then
+        echo "  $config_dir -> already linked"
+    elif [ ! -e "$config_dir" ]; then
+        mkdir -p "$(dirname "$config_dir")"
+        ln -s "$repo_global" "$config_dir"
+        echo "  $config_dir -> $repo_global"
+    else
+        echo "  $config_dir already exists — linking skills only"
+        create_symlink "$config_dir/skills" "$skills_src"
+    fi
+}
+
+# Always ensure skills symlinks exist inside repo global dirs
+# (used when the full-dir symlink path is taken on a new machine)
+create_symlink "$REPO_DIR/global/claude/skills"   "$REPO_DIR/skills"
+create_symlink "$REPO_DIR/global/gemini/skills"   "$REPO_DIR/skills"
 create_symlink "$REPO_DIR/global/opencode/skills" "$REPO_DIR/skills"
-create_symlink "$REPO_DIR/global/codex/skills" "$REPO_DIR/skills"
+create_symlink "$REPO_DIR/global/codex/skills"    "$REPO_DIR/skills"
+
+# Link tool config dirs (smart: full on new machine, skills-only on existing)
+link_tool_config "$HOME_DIR/.claude"   "$REPO_DIR/global/claude"   "$REPO_DIR/skills"
+link_tool_config "$HOME_DIR/.gemini"   "$REPO_DIR/global/gemini"   "$REPO_DIR/skills"
+link_tool_config "$HOME_DIR/.opencode" "$REPO_DIR/global/opencode" "$REPO_DIR/skills"
+link_tool_config "$HOME_DIR/.codex"    "$REPO_DIR/global/codex"    "$REPO_DIR/skills"
 
 echo ""
 

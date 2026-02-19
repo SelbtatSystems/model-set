@@ -38,7 +38,7 @@ if (-not $PythonCmd) {
 }
 
 if (-not $PythonCmd) {
-    Write-Host " not found — attempting auto-install..." -ForegroundColor Yellow
+    Write-Host " not found - attempting auto-install..." -ForegroundColor Yellow
     $Installed = $false
 
     if (Get-Command winget -ErrorAction SilentlyContinue) {
@@ -152,7 +152,7 @@ try {
     npx playwright install-deps chromium 2>$null
     Write-Host " installed" -ForegroundColor Green
 } catch {
-    Write-Host " (skipped — may need admin)" -ForegroundColor Yellow
+    Write-Host " (skipped - may need admin)" -ForegroundColor Yellow
 }
 
 # Ensure screenshots directory exists
@@ -284,7 +284,7 @@ function Link-ToolConfig {
         if ($existing.LinkType -eq "SymbolicLink" -or $existing.LinkType -eq "Junction") {
             Write-Host "  $ConfigDir -> already linked" -ForegroundColor Green
         } else {
-            Write-Host "  $ConfigDir already exists — linking skills only" -ForegroundColor Yellow
+            Write-Host "  $ConfigDir already exists - linking skills only" -ForegroundColor Yellow
             New-SymlinkSafe -Link "$ConfigDir\skills" -Target $SkillsSrc
         }
     } else {

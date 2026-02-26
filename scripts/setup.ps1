@@ -94,6 +94,54 @@ if (-not $PythonCmd) {
     }
 }
 
+# jq (required for Claude Code status line)
+Write-Host "  - jq..." -NoNewline
+$jqFound = $false
+try {
+    $jqVer = jq --version 2>$null
+    if ($jqVer) {
+        Write-Host " ($jqVer)" -ForegroundColor Green
+        $jqFound = $true
+    }
+} catch {}
+
+if (-not $jqFound) {
+    Write-Host " not found - attempting auto-install..." -ForegroundColor Yellow
+    $jqInstalled = $false
+
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        try {
+            winget install jqlang.jq --silent --accept-source-agreements --accept-package-agreements
+            $jqInstalled = $true
+        } catch {}
+    }
+
+    if (-not $jqInstalled -and (Get-Command choco -ErrorAction SilentlyContinue)) {
+        try {
+            choco install jq -y
+            $jqInstalled = $true
+        } catch {}
+    }
+
+    if (-not $jqInstalled -and (Get-Command scoop -ErrorAction SilentlyContinue)) {
+        try {
+            scoop install jq
+            $jqInstalled = $true
+        } catch {}
+    }
+
+    # Refresh PATH
+    $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" +
+                [System.Environment]::GetEnvironmentVariable("PATH", "User")
+
+    if ($jqInstalled -and (Get-Command jq -ErrorAction SilentlyContinue)) {
+        Write-Host "    Installed: $(jq --version 2>$null)" -ForegroundColor Green
+    } else {
+        Write-Host "  WARNING: Could not auto-install jq. Status line will not work." -ForegroundColor Yellow
+        Write-Host "  Install manually: https://jqlang.github.io/jq/download/" -ForegroundColor Yellow
+    }
+}
+
 Write-Host ""
 
 # =====================================================
@@ -171,6 +219,15 @@ try {
     npm install -g @openai/codex
     Write-Host "    Installed!" -ForegroundColor Green
 }
+
+# Claude Code context monitor (status line)
+Write-Host "  - Context monitor..." -NoNewline
+$scriptsDir = Join-Path $HomeDir ".claude\scripts"
+if (-not (Test-Path $scriptsDir)) {
+    New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
+}
+Copy-Item (Join-Path $RepoDir "global\claude\scripts\context-monitor.py") (Join-Path $scriptsDir "context-monitor.py") -Force
+Write-Host " installed" -ForegroundColor Green
 
 Write-Host ""
 

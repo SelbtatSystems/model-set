@@ -80,6 +80,39 @@ else
     fi
 fi
 
+# jq (required for Claude Code status line)
+echo -n "  - jq..."
+if command -v jq &> /dev/null; then
+    JQ_VER=$(jq --version 2>&1)
+    echo " ($JQ_VER)"
+else
+    echo " not found — attempting auto-install..."
+    INSTALLED=false
+
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        if command -v brew &> /dev/null; then
+            brew install jq && INSTALLED=true
+        fi
+    elif command -v apt-get &> /dev/null; then
+        sudo apt-get update -qq && sudo apt-get install -y jq && INSTALLED=true
+    elif command -v dnf &> /dev/null; then
+        sudo dnf install -y jq && INSTALLED=true
+    elif command -v yum &> /dev/null; then
+        sudo yum install -y jq && INSTALLED=true
+    elif command -v pacman &> /dev/null; then
+        sudo pacman -S --noconfirm jq && INSTALLED=true
+    elif command -v zypper &> /dev/null; then
+        sudo zypper install -y jq && INSTALLED=true
+    fi
+
+    if $INSTALLED && command -v jq &> /dev/null; then
+        echo "    Installed: $(jq --version 2>&1)"
+    else
+        echo "  WARNING: Could not auto-install jq. Status line will not work."
+        echo "  Install manually: https://jqlang.github.io/jq/download/"
+    fi
+fi
+
 echo ""
 
 # =====================================================
@@ -152,6 +185,13 @@ else
     npm install -g @openai/codex
     echo "    Installed!"
 fi
+
+# Claude Code context monitor (status line)
+echo -n "  - Context monitor..."
+mkdir -p "$HOME_DIR/.claude/scripts"
+cp "$REPO_DIR/global/claude/scripts/context-monitor.py" "$HOME_DIR/.claude/scripts/context-monitor.py"
+chmod +x "$HOME_DIR/.claude/scripts/context-monitor.py"
+echo " installed"
 
 echo ""
 

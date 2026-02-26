@@ -64,5 +64,9 @@
     "stitch",
     "context7",
     "aiguide"
-  ]
+  ],
+  "statusLine": {
+    "type": "command",
+    "command": "bash -c 'python \"$HOME/.claude/scripts/context-monitor.py\"'"
+  }
 }

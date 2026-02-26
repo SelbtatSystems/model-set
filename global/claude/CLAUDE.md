@@ -1,8 +1,11 @@
-## Git & GitHub
+# CLAUDE.md
 
+In all interactions and commit messages, be concise and sacrifice grammar for the sake of concision
+
+## Git & GitHub
 - Use `gh` CLI for GitHub operations
 - Prefix branches with `sven/`
-- always exclude `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"&& git log --oneline -3`
+
 
 ## MCP Servers
 

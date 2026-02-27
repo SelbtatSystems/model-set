@@ -16,45 +16,38 @@ if sys.stdout.encoding != "utf-8":
 
 
 def get_git_status():
-    """Get git branch and change count for statusline."""
+    """Get git branch with staged/modified counts."""
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    RESET = "\033[0m"
+
     try:
-        # Check if inside a git repository
         subprocess.check_output(
             ["git", "rev-parse", "--git-dir"], stderr=subprocess.DEVNULL
         )
-
-        # Get current branch
-        branch = (
-            subprocess.check_output(
-                ["git", "branch", "--show-current"], stderr=subprocess.DEVNULL
-            )
-            .decode()
-            .strip()
-        )
+        branch = subprocess.check_output(
+            ["git", "branch", "--show-current"], text=True, stderr=subprocess.DEVNULL
+        ).strip()
 
         if not branch:
             return ""
 
-        # Count changes
-        changes = (
-            subprocess.check_output(
-                ["git", "status", "--porcelain"], stderr=subprocess.DEVNULL
-            )
-            .decode()
-            .splitlines()
-        )
+        staged_output = subprocess.check_output(
+            ["git", "diff", "--cached", "--numstat"], text=True, stderr=subprocess.DEVNULL
+        ).strip()
+        modified_output = subprocess.check_output(
+            ["git", "diff", "--numstat"], text=True, stderr=subprocess.DEVNULL
+        ).strip()
 
-        change_count = len(changes)
+        staged = len(staged_output.split("\n")) if staged_output else 0
+        modified = len(modified_output.split("\n")) if modified_output else 0
 
-        # Color logic
-        if change_count > 0:
-            color = "\033[31m"  # Red = dirty
-            suffix = f" ({change_count})"
-        else:
-            color = "\033[32m"  # Green = clean
-            suffix = ""
+        git_info = f"{GREEN}+{staged}{RESET}" if staged else ""
+        git_info += f"{YELLOW}~{modified}{RESET}" if modified else ""
 
-        return f" \033[90m|\033[0m {color}🌿 {branch}{suffix}\033[0m"
+        suffix = f" {git_info}" if git_info else ""
+
+        return f" \033[90m|\033[0m 𖣂 {branch}{suffix}"
 
     except Exception:
         return ""
@@ -132,45 +125,41 @@ def parse_context_from_transcript(transcript_path):
 
 
 def get_context_display(context_info):
-    """Generate context display with visual indicators."""
+    """Generate context display with dash-based progress bar."""
     if not context_info:
-        return "🔵 ???"
+        return "\033[90m" + "░" * 10 + "\033[0m 0%"
 
     percent = context_info.get("percent", 0)
     warning = context_info.get("warning")
 
-    # Color and icon based on usage level
-    if percent >= 95:
-        icon, color = "🚨", "\033[31;1m"  # Blinking red
-        alert = "CRIT"
-    elif percent >= 90:
-        icon, color = "🔴", "\033[31m"  # Red
-        alert = "HIGH"
-    elif percent >= 75:
-        icon, color = "🟠", "\033[91m"  # Light red
-        alert = ""
+    # 10 segments, each represents 10% of context
+    total = 10
+    filled = int((percent / 100) * total)
+
+    # Color for filled segments based on usage level
+    if percent >= 75:
+        fill_color = "\033[31m"  # Red
     elif percent >= 50:
-        icon, color = "🟡", "\033[33m"  # Yellow
-        alert = ""
+        fill_color = "\033[33m"  # Orange/yellow
     else:
-        icon, color = "🟢", "\033[32m"  # Green
-        alert = ""
-
-    # Create progress bar
-    segments = 8
-    filled = int((percent / 100) * segments)
-    bar = "█" * filled + "▁" * (segments - filled)
-
-    # Special warnings
-    if warning == "auto-compact":
-        alert = "AUTO-COMPACT!"
-    elif warning == "low":
-        alert = "LOW!"
+        fill_color = "\033[32m"  # Green
 
     reset = "\033[0m"
-    alert_str = f" {alert}" if alert else ""
 
-    return f"{icon}{color}{bar}{reset} {percent:.0f}%{alert_str}"
+    bar = f"{fill_color}" + "▓" * filled + f"{reset}\033[90m" + "░" * (total - filled) + f"{reset}"
+
+    # Alert text for critical states
+    alert = ""
+    if warning == "auto-compact":
+        alert = " AUTO-COMPACT!"
+    elif warning == "low":
+        alert = " LOW!"
+    elif percent >= 95:
+        alert = " CRIT"
+    elif percent >= 90:
+        alert = " HIGH"
+
+    return f"{bar} {percent:.0f}%{alert}"
 
 
 def get_directory_display(workspace_data):
@@ -192,61 +181,6 @@ def get_directory_display(workspace_data):
         return "unknown"
 
 
-def get_session_metrics(cost_data):
-    """Get session metrics display."""
-    if not cost_data:
-        return ""
-
-    metrics = []
-
-    # Cost
-    cost_usd = cost_data.get("total_cost_usd", 0)
-    if cost_usd > 0:
-        if cost_usd >= 0.10:
-            cost_color = "\033[31m"  # Red for expensive
-        elif cost_usd >= 0.05:
-            cost_color = "\033[33m"  # Yellow for moderate
-        else:
-            cost_color = "\033[32m"  # Green for cheap
-
-        cost_str = f"{cost_usd*100:.0f}¢" if cost_usd < 0.01 else f"${cost_usd:.3f}"
-        metrics.append(f"{cost_color}💰 {cost_str}\033[0m")
-
-    # Duration
-    duration_ms = cost_data.get("total_duration_ms", 0)
-    if duration_ms > 0:
-        minutes = duration_ms / 60000
-        if minutes >= 30:
-            duration_color = "\033[33m"  # Yellow for long sessions
-        else:
-            duration_color = "\033[32m"  # Green
-
-        if minutes < 1:
-            duration_str = f"{duration_ms//1000}s"
-        else:
-            duration_str = f"{minutes:.0f}m"
-
-        metrics.append(f"{duration_color}⏱ {duration_str}\033[0m")
-
-    # Lines changed
-    lines_added = cost_data.get("total_lines_added", 0)
-    lines_removed = cost_data.get("total_lines_removed", 0)
-    if lines_added > 0 or lines_removed > 0:
-        net_lines = lines_added - lines_removed
-
-        if net_lines > 0:
-            lines_color = "\033[32m"  # Green for additions
-        elif net_lines < 0:
-            lines_color = "\033[31m"  # Red for deletions
-        else:
-            lines_color = "\033[33m"  # Yellow for neutral
-
-        sign = "+" if net_lines >= 0 else ""
-        metrics.append(f"{lines_color}📝 {sign}{net_lines}\033[0m")
-
-    return f" \033[90m|\033[0m {' '.join(metrics)}" if metrics else ""
-
-
 def main():
     try:
         # Read JSON input from Claude Code
@@ -256,7 +190,6 @@ def main():
         model_name = data.get("model", {}).get("display_name", "Claude")
         workspace = data.get("workspace", {})
         transcript_path = data.get("transcript_path", "")
-        cost_data = data.get("cost", {})
 
         # Parse context usage
         context_info = parse_context_from_transcript(transcript_path)
@@ -264,30 +197,19 @@ def main():
         # Build status components
         context_display = get_context_display(context_info)
         directory = get_directory_display(workspace)
-        session_metrics = get_session_metrics(cost_data)
         git_status = get_git_status()
 
-        # Model display with context-aware coloring
-        if context_info:
-            percent = context_info.get("percent", 0)
-            if percent >= 90:
-                model_color = "\033[31m"  # Red
-            elif percent >= 75:
-                model_color = "\033[33m"  # Yellow
-            else:
-                model_color = "\033[32m"  # Green
-
-            model_display = f"{model_color}[{model_name}]\033[0m"
-        else:
-            model_display = f"\033[94m[{model_name}]\033[0m"
+        # Model display in #DE7356
+        model_color = "\033[38;2;222;115;86m"
+        model_display = f"{model_color}[{model_name}]\033[0m"
 
         # Combine all components
         status_line = (
             f"{model_display} "
-            f"🧠 {context_display} "
-            f"\033[93m📁 {directory}\033[0m"
+            f"Context {context_display} "
+            f"\033[90m|\033[0m "
+            f"📂 {directory}"
             f"{git_status}"
-            f"{session_metrics}"
         )
 
         print(status_line)
@@ -295,7 +217,7 @@ def main():
     except Exception as e:
         # Fallback display on any error
         print(
-            f"\033[94m[Claude]\033[0m \033[93m📁 {os.path.basename(os.getcwd())}\033[0m 🧠 \033[31m[Error: {str(e)[:20]}]\033[0m"
+            f"\033[38;2;222;115;86m[Claude]\033[0m Context \033[31m[Error: {str(e)[:20]}]\033[0m \033[90m|\033[0m 📂 {os.path.basename(os.getcwd())}"
         )
 
 

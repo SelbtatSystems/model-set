@@ -47,7 +47,7 @@ def get_git_status():
 
         suffix = f" {git_info}" if git_info else ""
 
-        return f" \033[90m|\033[0m 𖣂 {branch}{suffix}"
+        return f" \033[90m|\033[0m ├ {branch}{suffix}"
 
     except Exception:
         return ""
@@ -208,7 +208,7 @@ def main():
             f"{model_display} "
             f"Context {context_display} "
             f"\033[90m|\033[0m "
-            f"📂 {directory}"
+            f"🗁 {directory}"
             f"{git_status}"
         )
 
@@ -217,7 +217,7 @@ def main():
     except Exception as e:
         # Fallback display on any error
         print(
-            f"\033[38;2;222;115;86m[Claude]\033[0m Context \033[31m[Error: {str(e)[:20]}]\033[0m \033[90m|\033[0m 📂 {os.path.basename(os.getcwd())}"
+            f"\033[38;2;222;115;86m[Claude]\033[0m Context \033[31m[Error: {str(e)[:20]}]\033[0m \033[90m|\033[0m 🗁 {os.path.basename(os.getcwd())}"
         )
 
 

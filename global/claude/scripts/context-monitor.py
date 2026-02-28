@@ -16,34 +16,47 @@ if sys.stdout.encoding != "utf-8":
 
 
 def get_git_status():
-    """Get git branch with staged/modified counts."""
+    """Get git branch with staged/modified/untracked counts."""
     GREEN = "\033[32m"
     YELLOW = "\033[33m"
+    RED = "\033[31m"
     RESET = "\033[0m"
 
     try:
         subprocess.check_output(
-            ["git", "rev-parse", "--git-dir"], stderr=subprocess.DEVNULL
+            ["git", "rev-parse", "--git-dir"],
+            stderr=subprocess.DEVNULL, timeout=2
         )
         branch = subprocess.check_output(
-            ["git", "branch", "--show-current"], text=True, stderr=subprocess.DEVNULL
+            ["git", "branch", "--show-current"],
+            text=True, stderr=subprocess.DEVNULL, timeout=2
         ).strip()
 
         if not branch:
             return ""
 
-        staged_output = subprocess.check_output(
-            ["git", "diff", "--cached", "--numstat"], text=True, stderr=subprocess.DEVNULL
-        ).strip()
-        modified_output = subprocess.check_output(
-            ["git", "diff", "--numstat"], text=True, stderr=subprocess.DEVNULL
+        # Single command: staged, modified, and untracked in one call
+        porcelain = subprocess.check_output(
+            ["git", "status", "--porcelain"],
+            text=True, stderr=subprocess.DEVNULL, timeout=2
         ).strip()
 
-        staged = len(staged_output.split("\n")) if staged_output else 0
-        modified = len(modified_output.split("\n")) if modified_output else 0
+        staged = 0
+        modified = 0
+        untracked = 0
+        for entry in porcelain.splitlines() if porcelain else []:
+            index, worktree = entry[0], entry[1]
+            if entry[:2] == "??":
+                untracked += 1
+            else:
+                if index in "MADRC":
+                    staged += 1
+                if worktree in "MD":
+                    modified += 1
 
         git_info = f"{GREEN}+{staged}{RESET}" if staged else ""
         git_info += f"{YELLOW}~{modified}{RESET}" if modified else ""
+        git_info += f"{RED}?{untracked}{RESET}" if untracked else ""
 
         suffix = f" {git_info}" if git_info else ""
 
@@ -53,17 +66,43 @@ def get_git_status():
         return ""
 
 
-def parse_context_from_transcript(transcript_path):
+# Context window sizes by model keyword (tokens)
+MODEL_CONTEXT_WINDOWS = {
+    "opus": 200_000,
+    "sonnet": 200_000,
+    "haiku": 200_000,
+}
+DEFAULT_CONTEXT_WINDOW = 200_000
+
+
+def get_context_window(model_name):
+    """Get context window size for a model name."""
+    name_lower = model_name.lower()
+    for keyword, size in MODEL_CONTEXT_WINDOWS.items():
+        if keyword in name_lower:
+            return size
+    return DEFAULT_CONTEXT_WINDOW
+
+
+def parse_context_from_transcript(transcript_path, model_name=""):
     """Parse context usage from transcript file."""
     if not transcript_path or not os.path.exists(transcript_path):
         return None
 
-    try:
-        with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
+    context_window = get_context_window(model_name)
 
-        # Check last 15 lines for context information
-        recent_lines = lines[-15:] if len(lines) > 15 else lines
+    try:
+        # Read only the tail of the file (~8KB) instead of the entire transcript
+        with open(transcript_path, "rb") as f:
+            f.seek(0, 2)  # seek to end
+            file_size = f.tell()
+            read_size = min(file_size, 8192)
+            f.seek(file_size - read_size)
+            tail = f.read().decode("utf-8", errors="replace")
+
+        # Split into lines and check last ones
+        lines = tail.splitlines()
+        recent_lines = lines[-15:]
 
         for line in reversed(recent_lines):
             try:
@@ -79,10 +118,9 @@ def parse_context_from_transcript(transcript_path):
                         cache_read = usage.get("cache_read_input_tokens", 0)
                         cache_creation = usage.get("cache_creation_input_tokens", 0)
 
-                        # Estimate context usage (assume 200k context for Claude Sonnet)
                         total_tokens = input_tokens + cache_read + cache_creation
                         if total_tokens > 0:
-                            percent_used = min(100, (total_tokens / 200000) * 100)
+                            percent_used = min(100, (total_tokens / context_window) * 100)
                             return {
                                 "percent": percent_used,
                                 "tokens": total_tokens,
@@ -93,7 +131,6 @@ def parse_context_from_transcript(transcript_path):
                 elif data.get("type") == "system_message":
                     content = data.get("content", "")
 
-                    # "Context left until auto-compact: X%"
                     match = re.search(
                         r"Context left until auto-compact: (\d+)%", content
                     )
@@ -105,7 +142,6 @@ def parse_context_from_transcript(transcript_path):
                             "method": "system",
                         }
 
-                    # "Context low (X% remaining)"
                     match = re.search(r"Context low \((\d+)% remaining\)", content)
                     if match:
                         percent_left = int(match.group(1))
@@ -137,9 +173,9 @@ def get_context_display(context_info):
     filled = int((percent / 100) * total)
 
     # Color for filled segments based on usage level
-    if percent >= 75:
+    if percent >= 80:
         fill_color = "\033[31m"  # Red
-    elif percent >= 50:
+    elif percent >= 55:
         fill_color = "\033[33m"  # Orange/yellow
     else:
         fill_color = "\033[32m"  # Green
@@ -192,7 +228,7 @@ def main():
         transcript_path = data.get("transcript_path", "")
 
         # Parse context usage
-        context_info = parse_context_from_transcript(transcript_path)
+        context_info = parse_context_from_transcript(transcript_path, model_name)
 
         # Build status components
         context_display = get_context_display(context_info)

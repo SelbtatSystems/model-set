@@ -1,0 +1,107 @@
+# ==============================================================================
+# GEMINI CLI POLICY FILE - SAFE COMMANDS & PERMISSIONS
+# ==============================================================================
+
+# 1. MCP TOOL PERMISSIONS
+# ------------------------------------------------------------------------------
+# Grouping by server for better management. Use '*' for all tools in a server.
+
+[[rule]]
+name = "Allow Stitch Project & Screen Tools"
+mcpName = "stitch"
+toolName = "*" # Covers create_project, get_project, list_screens, etc.
+decision = "allow"
+priority = 100
+
+[[rule]]
+name = "Allow Context7 Docs"
+mcpName = "context7"
+toolName = "*" # Covers resolve-library-id, get-library-docs
+decision = "allow"
+priority = 100
+
+[[rule]]
+name = "Allow AI Guide Search"
+mcpName = "aiguide"
+toolName = "search_docs"
+decision = "allow"
+priority = 100
+
+[[rule]]
+name = "Allow Full Postgres Access"
+mcpName = "postgres"
+toolName = "*" # Covers query, execute, list_tables, describe, etc.
+decision = "allow"
+priority = 100
+
+[[rule]]
+name = "Allow Full Redis Access"
+mcpName = "redis"
+toolName = "*" # Covers get, set, hgetall, expire, etc.
+decision = "allow"
+priority = 100
+
+[[rule]]
+name = "Allow Stripe Integration"
+mcpName = "stripe"
+toolName = "*"
+decision = "allow"
+priority = 100
+
+# 2. SHELL / BASH COMMAND PERMISSIONS
+# ------------------------------------------------------------------------------
+
+# -- DENY RULES (High Priority) --
+[[rule]]
+name = "Block Dangerous Shell Commands"
+toolName = "run_shell_command"
+commandPrefix = ["rm -rf", "sudo"]
+decision = "deny"
+priority = 1000 # Higher priority than allows
+
+# -- ALLOW RULES --
+[[rule]]
+name = "Allow Agent Browser Commands"
+toolName = "run_shell_command"
+commandPrefix = "agent-browser "
+decision = "allow"
+priority = 100
+
+[[rule]]
+name = "Allow Docker and Compose"
+toolName = "run_shell_command"
+commandPrefix = ["docker ", "docker-compose "]
+decision = "allow"
+priority = 100
+
+[[rule]]
+name = "Allow Dev Runtimes and Package Managers"
+toolName = "run_shell_command"
+commandPrefix = ["npm ", "yarn ", "node ", "git ", "python ", "pip ", "npx ", "pnpm ", "bun "]
+decision = "allow"
+priority = 100
+
+# 3. FILE SYSTEM PERMISSIONS (Read/Write/Edit)
+# ------------------------------------------------------------------------------
+
+# -- DENY RULES (Secrets protection) --
+[[rule]]
+name = "Block Sensitive Files"
+operation = "read"
+pathPattern = ["**/.env*", "**/secrets/**"]
+decision = "deny"
+priority = 1000
+
+# -- ALLOW RULES (Code Files) --
+[[rule]]
+name = "Allow Source Code Access"
+operation = ["read", "write", "edit"]
+pathPattern = [
+    "**/*.json", 
+    "**/*.js", 
+    "**/*.ts", 
+    "**/*.tsx", 
+    "**/*.py"
+]
+decision = "allow"
+priority = 100

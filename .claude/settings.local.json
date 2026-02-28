@@ -56,7 +56,8 @@
       "Bash(pnpm *)",
       "Bash(yarn *)",
       "Bash(bun *)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(bash -c 'python \"\"$HOME/.claude/scripts/context-monitor.py\"\"')"
     ]
   },
   "enableAllProjectMcpServers": true,

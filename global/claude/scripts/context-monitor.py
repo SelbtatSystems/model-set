@@ -47,7 +47,7 @@ def get_git_status():
 
         suffix = f" {git_info}" if git_info else ""
 
-        return f" \033[90m|\033[0m ├ {branch}{suffix}"
+        return f" \033[90m·\033[0m ├ {branch}{suffix}"
 
     except Exception:
         return ""
@@ -199,15 +199,11 @@ def main():
         directory = get_directory_display(workspace)
         git_status = get_git_status()
 
-        # Model display in #DE7356
-        model_color = "\033[38;2;222;115;86m"
-        model_display = f"{model_color}[{model_name}]\033[0m"
-
         # Combine all components
         status_line = (
-            f"{model_display} "
-            f"Context {context_display} "
-            f"\033[90m|\033[0m "
+            f"{model_name} "
+            f"\033[90m·\033[0m {context_display} "
+            f"\033[90m·\033[0m "
             f"🗁 {directory}"
             f"{git_status}"
         )
@@ -217,7 +213,7 @@ def main():
     except Exception as e:
         # Fallback display on any error
         print(
-            f"\033[38;2;222;115;86m[Claude]\033[0m Context \033[31m[Error: {str(e)[:20]}]\033[0m \033[90m|\033[0m 🗁 {os.path.basename(os.getcwd())}"
+            f"Claude \033[90m·\033[0m \033[31m[Error: {str(e)[:20]}]\033[0m \033[90m·\033[0m 🗁 {os.path.basename(os.getcwd())}"
         )
 
 

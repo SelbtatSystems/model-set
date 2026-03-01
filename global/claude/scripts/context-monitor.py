@@ -9,10 +9,46 @@ import sys
 import os
 import re
 import subprocess
+import unicodedata
 
 # Force UTF-8 output on Windows (cp1252 can't handle emoji)
 if sys.stdout.encoding != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
+
+# ANSI escape pattern for stripping from width calculations
+ANSI_RE = re.compile(r"\033\[[^m]*m")
+
+
+def char_width(ch):
+    """Get display width of a character (2 for wide/emoji, 1 otherwise)."""
+    eaw = unicodedata.east_asian_width(ch)
+    return 2 if eaw in ("W", "F") else 1
+
+
+def visible_width(s):
+    """Calculate visible column width, ignoring ANSI codes."""
+    stripped = ANSI_RE.sub("", s)
+    return sum(char_width(ch) for ch in stripped)
+
+
+def truncate_to_width(s, max_width):
+    """Truncate string with ANSI codes to fit max_width visible columns."""
+    width = 0
+    i = 0
+    while i < len(s):
+        # Skip ANSI escape sequences (zero visible width)
+        if s[i] == "\033" and i + 1 < len(s) and s[i + 1] == "[":
+            j = i + 2
+            while j < len(s) and s[j] != "m":
+                j += 1
+            i = j + 1
+            continue
+        cw = char_width(s[i])
+        if width + cw > max_width:
+            break
+        width += cw
+        i += 1
+    return s[:i] + "\033[0m"
 
 
 def get_git_status():
@@ -54,9 +90,10 @@ def get_git_status():
                 if worktree in "MD":
                     modified += 1
 
-        git_info = f"{GREEN}+{staged}{RESET}" if staged else ""
-        git_info += f"{YELLOW}~{modified}{RESET}" if modified else ""
-        git_info += f"{RED}?{untracked}{RESET}" if untracked else ""
+        git_info = f"{GREEN}+{staged} staged{RESET}" if staged else ""
+        git_info += f" {YELLOW}~{modified} mod{RESET}" if modified else ""
+        git_info += f" {RED}?{untracked} new{RESET}" if untracked else ""
+        git_info = git_info.lstrip()
 
         suffix = f" {git_info}" if git_info else ""
 
@@ -100,8 +137,10 @@ def parse_context_from_transcript(transcript_path, model_name=""):
             f.seek(file_size - read_size)
             tail = f.read().decode("utf-8", errors="replace")
 
-        # Split into lines and check last ones
+        # Split into lines; skip first (potentially partial) line from mid-seek
         lines = tail.splitlines()
+        if read_size < file_size:
+            lines = lines[1:]
         recent_lines = lines[-15:]
 
         for line in reversed(recent_lines):
@@ -200,8 +239,8 @@ def get_context_display(context_info):
 
 def get_directory_display(workspace_data):
     """Get directory display name."""
-    current_dir = workspace_data.get("current_dir", "")
-    project_dir = workspace_data.get("project_dir", "")
+    current_dir = workspace_data.get("current_dir", "").replace("\\", "/")
+    project_dir = workspace_data.get("project_dir", "").replace("\\", "/")
 
     if current_dir and project_dir:
         if current_dir.startswith(project_dir):
@@ -243,6 +282,16 @@ def main():
             f"🗁 {directory}"
             f"{git_status}"
         )
+
+        # Get terminal width; stderr may still be a TTY when stdin/stdout are pipes
+        try:
+            term_width = os.get_terminal_size(sys.stderr.fileno()).columns
+        except (ValueError, OSError):
+            term_width = 120
+
+        # Truncate to prevent line wrapping (last char leaks to line above)
+        if visible_width(status_line) >= term_width:
+            status_line = truncate_to_width(status_line, term_width - 1)
 
         print(status_line)
 

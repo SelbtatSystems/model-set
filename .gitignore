@@ -16,6 +16,7 @@
 **/google_accounts.json
 
 # Claude Code runtime data
+.claude
 global/claude/cache/
 global/claude/debug/
 global/claude/file-history/

@@ -220,15 +220,6 @@ try {
     Write-Host "    Installed!" -ForegroundColor Green
 }
 
-# Claude Code context monitor (status line)
-Write-Host "  - Context monitor..." -NoNewline
-$scriptsDir = Join-Path $HomeDir ".claude\scripts"
-if (-not (Test-Path $scriptsDir)) {
-    New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
-}
-Copy-Item (Join-Path $RepoDir "global\claude\scripts\context-monitor.py") (Join-Path $scriptsDir "context-monitor.py") -Force
-Write-Host " installed" -ForegroundColor Green
-
 Write-Host ""
 
 # =====================================================
@@ -371,6 +362,19 @@ Link-ToolConfig -ConfigDir "$HomeDir\.claude"   -RepoGlobal "$RepoDir\global\cla
 Link-ToolConfig -ConfigDir "$HomeDir\.gemini"   -RepoGlobal "$RepoDir\global\gemini"   -SkillsSrc "$RepoDir\skills"
 Link-ToolConfig -ConfigDir "$HomeDir\.opencode" -RepoGlobal "$RepoDir\global\opencode" -SkillsSrc "$RepoDir\skills"
 Link-ToolConfig -ConfigDir "$HomeDir\.codex"    -RepoGlobal "$RepoDir\global\codex"    -SkillsSrc "$RepoDir\skills"
+
+# Existing installs: ~/.claude is a real dir, not a symlink — copy context-monitor
+$claudeDir = Join-Path $HomeDir ".claude"
+$linkItem = Get-Item $claudeDir -ErrorAction SilentlyContinue
+if ($linkItem -and -not $linkItem.Attributes.ToString().Contains("ReparsePoint")) {
+    Write-Host "  - Context monitor (existing install)..." -NoNewline
+    $scriptsDir = Join-Path $claudeDir "scripts"
+    if (-not (Test-Path $scriptsDir)) {
+        New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
+    }
+    Copy-Item (Join-Path $RepoDir "global\claude\scripts\context-monitor.py") (Join-Path $scriptsDir "context-monitor.py") -Force
+    Write-Host " copied" -ForegroundColor Green
+}
 
 Write-Host ""
 

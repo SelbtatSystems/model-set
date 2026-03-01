@@ -186,13 +186,6 @@ else
     echo "    Installed!"
 fi
 
-# Claude Code context monitor (status line)
-echo -n "  - Context monitor..."
-mkdir -p "$HOME_DIR/.claude/scripts"
-cp "$REPO_DIR/global/claude/scripts/context-monitor.py" "$HOME_DIR/.claude/scripts/context-monitor.py"
-chmod +x "$HOME_DIR/.claude/scripts/context-monitor.py"
-echo " installed"
-
 echo ""
 
 # =====================================================
@@ -302,6 +295,15 @@ link_tool_config "$HOME_DIR/.claude"   "$REPO_DIR/global/claude"   "$REPO_DIR/sk
 link_tool_config "$HOME_DIR/.gemini"   "$REPO_DIR/global/gemini"   "$REPO_DIR/skills"
 link_tool_config "$HOME_DIR/.opencode" "$REPO_DIR/global/opencode" "$REPO_DIR/skills"
 link_tool_config "$HOME_DIR/.codex"    "$REPO_DIR/global/codex"    "$REPO_DIR/skills"
+
+# Existing installs: ~/.claude is a real dir, not a symlink — copy context-monitor
+if [ ! -L "$HOME_DIR/.claude" ] && [ -d "$HOME_DIR/.claude" ]; then
+    echo -n "  - Context monitor (existing install)..."
+    mkdir -p "$HOME_DIR/.claude/scripts"
+    cp "$REPO_DIR/global/claude/scripts/context-monitor.py" "$HOME_DIR/.claude/scripts/context-monitor.py"
+    chmod +x "$HOME_DIR/.claude/scripts/context-monitor.py"
+    echo " copied"
+fi
 
 echo ""
 

@@ -15,6 +15,12 @@
 **/oauth_creds.json
 **/google_accounts.json
 
+# Skills symlinks (machine-specific, created by setup)
+global/claude/skills
+global/gemini/skills
+global/opencode/skills
+global/codex/skills
+
 # Claude Code runtime data
 .claude
 global/claude/cache/

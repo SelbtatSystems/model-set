@@ -54,3 +54,11 @@ agent-browser close                # Done
 - Always `snapshot -i` before interacting (refs invalidate on page changes)
 - Re-snapshot after navigation or dynamic content changes
 - Use `--headed` flag to see browser for debugging
+
+## Design Review
+
+**REQUIRED after every feature implementation and frontend change.**
+
+Run the `design-review` agent after completing UI work. The agent reviews visual consistency, accessibility, responsiveness, and code health against project design systems and S-Tier SaaS standards.
+
+**Blockers and High-Priority findings must be fixed before considering the work done.** Do not leave critical issues for follow-up — fix them immediately, then re-run the review to verify.

@@ -22,7 +22,13 @@ ANSI_RE = re.compile(r"\033\[[^m]*m")
 def char_width(ch):
     """Get display width of a character (2 for wide/emoji, 1 otherwise)."""
     eaw = unicodedata.east_asian_width(ch)
-    return 2 if eaw in ("W", "F") else 1
+    if eaw in ("W", "F"):
+        return 2
+    # Emoji/symbols in U+1F000-1FFFF render as 2 columns in terminals
+    # despite Unicode East_Asian_Width being Neutral (e.g. 🗁 U+1F5C1)
+    if ord(ch) >= 0x1F000:
+        return 2
+    return 1
 
 
 def visible_width(s):

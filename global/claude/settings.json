@@ -21,7 +21,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "bash -c 'python \"$HOME/.claude/scripts/context-monitor.py\"'"
+    "command": "bash -c 'python3 \"$HOME/.claude/scripts/context-monitor.py\" 2>/dev/null || python \"$HOME/.claude/scripts/context-monitor.py\"'"
   },
   "permissions": {
     "allow": [

@@ -172,30 +172,34 @@ create_symlink() {
 }
 
 # Link a tool's config directory.
-# New machine (dir doesn't exist): full symlink → repo/global/<tool>
-# Existing machine (real dir):     skills-only symlink inside existing dir
+# Always creates a full symlink → repo/global/<tool>.
+# Backs up any existing real directory to <dir>.backup.
 link_tool_config() {
     local config_dir="$1"   # e.g. ~/.claude
     local repo_global="$2"  # e.g. repo/global/claude
-    local skills_src="$3"   # e.g. repo/skills
 
     if is_repo_link "$config_dir"; then
         echo "  $config_dir -> already linked"
-    elif [ ! -e "$config_dir" ]; then
-        mkdir -p "$(dirname "$config_dir")"
-        if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "mingw"* ]]; then
-            local win_link win_target
-            win_link="$(cygpath -w "$config_dir")"
-            win_target="$(cygpath -w "$repo_global")"
-            powershell -NoProfile -Command "New-Item -ItemType Junction -Path '$win_link' -Target '$win_target'" > /dev/null 2>&1
-            echo "  $config_dir -> $repo_global (junction)"
-        else
-            ln -s "$repo_global" "$config_dir"
-            echo "  $config_dir -> $repo_global"
-        fi
+        return
+    fi
+
+    if [ -e "$config_dir" ]; then
+        echo "  $config_dir -> backing up existing to ${config_dir}.backup"
+        rm -rf "${config_dir}.backup"
+        mv "$config_dir" "${config_dir}.backup"
+    fi
+
+    mkdir -p "$(dirname "$config_dir")"
+
+    if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "mingw"* ]]; then
+        local win_link win_target
+        win_link="$(cygpath -w "$config_dir")"
+        win_target="$(cygpath -w "$repo_global")"
+        powershell -NoProfile -Command "New-Item -ItemType Junction -Path '$win_link' -Target '$win_target'" > /dev/null 2>&1
+        echo "  $config_dir -> $repo_global (junction)"
     else
-        echo "  $config_dir already exists — linking skills only"
-        create_symlink "$config_dir/skills" "$skills_src"
+        ln -s "$repo_global" "$config_dir"
+        echo "  $config_dir -> $repo_global"
     fi
 }
 
@@ -208,20 +212,11 @@ create_symlink "$REPO_DIR/global/codex/skills"    "$REPO_DIR/skills"
 create_symlink "$REPO_DIR/global/claude/agents"   "$REPO_DIR/agents"
 create_symlink "$REPO_DIR/global/gemini/agents"   "$REPO_DIR/agents"
 
-# Link tool config dirs (smart: full on new machine, skills-only on existing)
-link_tool_config "$HOME_DIR/.claude"   "$REPO_DIR/global/claude"   "$REPO_DIR/skills"
-link_tool_config "$HOME_DIR/.gemini"   "$REPO_DIR/global/gemini"   "$REPO_DIR/skills"
-link_tool_config "$HOME_DIR/.opencode" "$REPO_DIR/global/opencode" "$REPO_DIR/skills"
-link_tool_config "$HOME_DIR/.codex"    "$REPO_DIR/global/codex"    "$REPO_DIR/skills"
-
-# Existing installs: ~/.claude is a real dir, not a symlink — copy context-monitor
-if [ ! -L "$HOME_DIR/.claude" ] && [ -d "$HOME_DIR/.claude" ]; then
-    echo -n "  - Context monitor (existing install)..."
-    mkdir -p "$HOME_DIR/.claude/scripts"
-    cp "$REPO_DIR/global/claude/scripts/context-monitor.py" "$HOME_DIR/.claude/scripts/context-monitor.py"
-    chmod +x "$HOME_DIR/.claude/scripts/context-monitor.py"
-    echo " copied"
-fi
+# Link tool config dirs (always full symlink, backup existing)
+link_tool_config "$HOME_DIR/.claude"   "$REPO_DIR/global/claude"
+link_tool_config "$HOME_DIR/.gemini"   "$REPO_DIR/global/gemini"
+link_tool_config "$HOME_DIR/.opencode" "$REPO_DIR/global/opencode"
+link_tool_config "$HOME_DIR/.codex"    "$REPO_DIR/global/codex"
 
 echo ""
 

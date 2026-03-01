@@ -184,35 +184,38 @@ function New-SymlinkSafe {
 }
 
 # Link a tool's config directory.
-# New machine (dir doesn't exist): full symlink → repo/global/<tool>
-# Existing machine (real dir):     skills-only symlink inside existing dir
+# Always creates a full symlink → repo/global/<tool>.
+# Backs up any existing real directory to <dir>.backup.
 function Link-ToolConfig {
     param (
         [string]$ConfigDir,   # e.g. ~/.claude
-        [string]$RepoGlobal,  # e.g. repo\global\claude
-        [string]$SkillsSrc    # e.g. repo\skills
+        [string]$RepoGlobal   # e.g. repo\global\claude
     )
 
     if (Test-Path $ConfigDir) {
         $existing = Get-Item $ConfigDir
         if ($existing.LinkType -eq "SymbolicLink" -or $existing.LinkType -eq "Junction") {
             Write-Host "  $ConfigDir -> already linked" -ForegroundColor Green
-        } else {
-            Write-Host "  $ConfigDir already exists - linking skills only" -ForegroundColor Yellow
-            New-SymlinkSafe -Link "$ConfigDir\skills" -Target $SkillsSrc
+            return
         }
-    } else {
-        $parent = Split-Path -Parent $ConfigDir
-        if (-not (Test-Path $parent)) {
-            New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        Write-Host "  $ConfigDir -> backing up existing to ${ConfigDir}.backup" -ForegroundColor Yellow
+        if (Test-Path "${ConfigDir}.backup") {
+            Remove-Item "${ConfigDir}.backup" -Recurse -Force
         }
-        try {
-            New-Item -ItemType SymbolicLink -Path $ConfigDir -Target $RepoGlobal -Force | Out-Null
-            Write-Host "  $ConfigDir -> $RepoGlobal" -ForegroundColor Green
-        } catch {
-            cmd /c mklink /J "$ConfigDir" "$RepoGlobal" 2>$null
-            Write-Host "  $ConfigDir -> $RepoGlobal (junction)" -ForegroundColor Green
-        }
+        Move-Item $ConfigDir "${ConfigDir}.backup" -Force
+    }
+
+    $parent = Split-Path -Parent $ConfigDir
+    if (-not (Test-Path $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    try {
+        New-Item -ItemType SymbolicLink -Path $ConfigDir -Target $RepoGlobal -Force | Out-Null
+        Write-Host "  $ConfigDir -> $RepoGlobal" -ForegroundColor Green
+    } catch {
+        cmd /c mklink /J "$ConfigDir" "$RepoGlobal" 2>$null
+        Write-Host "  $ConfigDir -> $RepoGlobal (junction)" -ForegroundColor Green
     }
 }
 
@@ -225,24 +228,11 @@ New-SymlinkSafe -Link "$RepoDir\global\codex\skills"    -Target "$RepoDir\skills
 New-SymlinkSafe -Link "$RepoDir\global\claude\agents"   -Target "$RepoDir\agents"
 New-SymlinkSafe -Link "$RepoDir\global\gemini\agents"   -Target "$RepoDir\agents"
 
-# Link tool config dirs (smart: full on new machine, skills-only on existing)
-Link-ToolConfig -ConfigDir "$HomeDir\.claude"   -RepoGlobal "$RepoDir\global\claude"   -SkillsSrc "$RepoDir\skills"
-Link-ToolConfig -ConfigDir "$HomeDir\.gemini"   -RepoGlobal "$RepoDir\global\gemini"   -SkillsSrc "$RepoDir\skills"
-Link-ToolConfig -ConfigDir "$HomeDir\.opencode" -RepoGlobal "$RepoDir\global\opencode" -SkillsSrc "$RepoDir\skills"
-Link-ToolConfig -ConfigDir "$HomeDir\.codex"    -RepoGlobal "$RepoDir\global\codex"    -SkillsSrc "$RepoDir\skills"
-
-# Existing installs: ~/.claude is a real dir, not a symlink — copy context-monitor
-$claudeDir = Join-Path $HomeDir ".claude"
-$linkItem = Get-Item $claudeDir -ErrorAction SilentlyContinue
-if ($linkItem -and -not $linkItem.Attributes.ToString().Contains("ReparsePoint")) {
-    Write-Host "  - Context monitor (existing install)..." -NoNewline
-    $scriptsDir = Join-Path $claudeDir "scripts"
-    if (-not (Test-Path $scriptsDir)) {
-        New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
-    }
-    Copy-Item (Join-Path $RepoDir "global\claude\scripts\context-monitor.py") (Join-Path $scriptsDir "context-monitor.py") -Force
-    Write-Host " copied" -ForegroundColor Green
-}
+# Link tool config dirs (always full symlink, backup existing)
+Link-ToolConfig -ConfigDir "$HomeDir\.claude"   -RepoGlobal "$RepoDir\global\claude"
+Link-ToolConfig -ConfigDir "$HomeDir\.gemini"   -RepoGlobal "$RepoDir\global\gemini"
+Link-ToolConfig -ConfigDir "$HomeDir\.opencode" -RepoGlobal "$RepoDir\global\opencode"
+Link-ToolConfig -ConfigDir "$HomeDir\.codex"    -RepoGlobal "$RepoDir\global\codex"
 
 Write-Host ""
 

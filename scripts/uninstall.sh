@@ -33,28 +33,46 @@ if ! $FORCE; then
     echo ""
 fi
 
-# Helper: remove a symlink only if it points into this repo
+# Check if path is a symlink/junction pointing into this repo
+is_repo_link() {
+    local path="$1"
+    [ -L "$path" ] && return 0
+    # On MINGW, -L doesn't detect junctions; compare canonical paths
+    if [ -d "$path" ] && command -v cygpath &> /dev/null; then
+        local real_path
+        real_path="$(cd "$path" 2>/dev/null && pwd -W 2>/dev/null || cygpath -w "$path" 2>/dev/null)"
+        local real_target
+        real_target="$(cygpath -w "$REPO_DIR" 2>/dev/null)"
+        if [[ "$real_path" == "$real_target"* ]] && [ "$real_path" != "$(cygpath -w "$path" 2>/dev/null)" ]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Remove a symlink/junction, but only if it points into this repo
 remove_repo_symlink() {
     local link="$1"
-    if [ -L "$link" ]; then
-        local target
-        target="$(readlink "$link")"
-        if [[ "$target" == "$REPO_DIR"* ]]; then
-            rm "$link"
-            echo "  Removed symlink: $link -> $target"
-
-            # Restore backup if it exists
-            if [ -e "${link}.backup" ]; then
-                mv "${link}.backup" "$link"
-                echo "  Restored: ${link}.backup -> $link"
-            fi
-            return 0
+    if is_repo_link "$link"; then
+        # On MINGW, junctions must be removed with cmd rmdir
+        if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "mingw"* ]]; then
+            powershell -NoProfile -Command "(Get-Item '$(cygpath -w "$link")').Delete()" > /dev/null 2>&1
         else
-            echo "  Skipped: $link -> $target (not pointing to this repo)"
-            return 1
+            rm "$link"
         fi
+        echo "  Removed link: $link"
+
+        # Restore backup if it exists
+        if [ -e "${link}.backup" ]; then
+            mv "${link}.backup" "$link"
+            echo "  Restored: ${link}.backup -> $link"
+        fi
+        return 0
+    elif [ -e "$link" ]; then
+        echo "  Skipped: $link (not a repo link)"
+        return 1
     else
-        echo "  Skipped: $link (not a symlink)"
+        echo "  Skipped: $link (not found)"
         return 1
     fi
 }
@@ -112,12 +130,12 @@ echo "Removing home directory symlinks..."
 for tool in .claude .gemini .opencode .codex; do
     link="$HOME_DIR/$tool"
 
-    # Case 1: entire dir is a symlink to repo
-    if [ -L "$link" ]; then
+    # Case 1: entire dir is a symlink/junction to repo
+    if is_repo_link "$link"; then
         remove_repo_symlink "$link"
     elif [ -d "$link" ]; then
-        # Case 2: real dir with skills-only symlink inside
-        if [ -L "$link/skills" ]; then
+        # Case 2: real dir with skills-only symlink/junction inside
+        if is_repo_link "$link/skills"; then
             remove_repo_symlink "$link/skills"
         fi
     fi
@@ -131,7 +149,7 @@ echo ""
 echo "Removing copied files..."
 
 CONTEXT_MONITOR="$HOME_DIR/.claude/scripts/context-monitor.py"
-if [ ! -L "$HOME_DIR/.claude" ] && [ -f "$CONTEXT_MONITOR" ]; then
+if ! is_repo_link "$HOME_DIR/.claude" && [ -f "$CONTEXT_MONITOR" ]; then
     rm "$CONTEXT_MONITOR"
     echo "  Removed: $CONTEXT_MONITOR"
     # Remove scripts dir if empty
@@ -144,17 +162,35 @@ fi
 echo ""
 
 # =====================================================
-# 5. Repo-internal skills symlinks
+# 5. Repo-internal skills/agents symlinks
 # =====================================================
-echo "Removing repo-internal skills symlinks..."
+echo "Removing repo-internal symlinks..."
 
 for tool in claude gemini opencode codex; do
     link="$REPO_DIR/global/$tool/skills"
-    if [ -L "$link" ]; then
-        rm "$link"
+    if is_repo_link "$link"; then
+        if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "mingw"* ]]; then
+            powershell -NoProfile -Command "(Get-Item '$(cygpath -w "$link")').Delete()" > /dev/null 2>&1
+        else
+            rm "$link"
+        fi
         echo "  Removed: global/$tool/skills"
     else
-        echo "  Skipped: global/$tool/skills (not a symlink)"
+        echo "  Skipped: global/$tool/skills (not a link)"
+    fi
+done
+
+for tool in claude gemini; do
+    link="$REPO_DIR/global/$tool/agents"
+    if is_repo_link "$link"; then
+        if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "mingw"* ]]; then
+            powershell -NoProfile -Command "(Get-Item '$(cygpath -w "$link")').Delete()" > /dev/null 2>&1
+        else
+            rm "$link"
+        fi
+        echo "  Removed: global/$tool/agents"
+    else
+        echo "  Skipped: global/$tool/agents (not a link)"
     fi
 done
 

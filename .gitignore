@@ -15,11 +15,13 @@
 **/oauth_creds.json
 **/google_accounts.json
 
-# Skills symlinks (machine-specific, created by setup)
+# Skills/agents symlinks (machine-specific, created by setup)
 global/claude/skills
 global/gemini/skills
 global/opencode/skills
 global/codex/skills
+global/claude/agents
+global/gemini/agents
 
 # Claude Code runtime data
 .claude
@@ -38,7 +40,6 @@ global/claude/tasks/
 
 # Codex runtime data
 global/codex/.personality_migration
-global/codex/config.toml
 global/codex/history.jsonl
 global/codex/log/
 global/codex/models_cache.json

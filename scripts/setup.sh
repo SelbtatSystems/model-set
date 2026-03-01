@@ -244,11 +244,29 @@ fi
 # =====================================================
 echo "Creating global config symlinks..."
 
+is_repo_link() {
+    # Check if path is a symlink/junction pointing into this repo.
+    # -L works on real Unix; on MINGW it doesn't detect junctions,
+    # so we also compare canonical paths (junction resolves to target).
+    local path="$1"
+    [ -L "$path" ] && return 0
+    if [ -d "$path" ] && command -v cygpath &> /dev/null; then
+        local real_path
+        real_path="$(cd "$path" 2>/dev/null && pwd -W 2>/dev/null || cygpath -w "$path" 2>/dev/null)"
+        local real_target
+        real_target="$(cygpath -w "$REPO_DIR" 2>/dev/null)"
+        if [[ "$real_path" == "$real_target"* ]] && [ "$real_path" != "$(cygpath -w "$path" 2>/dev/null)" ]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
 create_symlink() {
     local link="$1"
     local target="$2"
 
-    if [ -L "$link" ]; then
+    if is_repo_link "$link"; then
         echo "  $link -> already linked"
         return
     fi
@@ -259,8 +277,19 @@ create_symlink() {
     fi
 
     mkdir -p "$(dirname "$link")"
-    ln -s "$target" "$link"
-    echo "  $link -> $target"
+
+    # On MINGW/Windows, ln -s silently copies instead of symlinking.
+    # Use cmd junctions which actually work.
+    if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "mingw"* ]]; then
+        local win_link win_target
+        win_link="$(cygpath -w "$link")"
+        win_target="$(cygpath -w "$target")"
+        powershell -NoProfile -Command "New-Item -ItemType Junction -Path '$win_link' -Target '$win_target'" > /dev/null 2>&1
+        echo "  $link -> $target (junction)"
+    else
+        ln -s "$target" "$link"
+        echo "  $link -> $target"
+    fi
 }
 
 # Link a tool's config directory.
@@ -271,24 +300,34 @@ link_tool_config() {
     local repo_global="$2"  # e.g. repo/global/claude
     local skills_src="$3"   # e.g. repo/skills
 
-    if [ -L "$config_dir" ]; then
+    if is_repo_link "$config_dir"; then
         echo "  $config_dir -> already linked"
     elif [ ! -e "$config_dir" ]; then
         mkdir -p "$(dirname "$config_dir")"
-        ln -s "$repo_global" "$config_dir"
-        echo "  $config_dir -> $repo_global"
+        if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "mingw"* ]]; then
+            local win_link win_target
+            win_link="$(cygpath -w "$config_dir")"
+            win_target="$(cygpath -w "$repo_global")"
+            powershell -NoProfile -Command "New-Item -ItemType Junction -Path '$win_link' -Target '$win_target'" > /dev/null 2>&1
+            echo "  $config_dir -> $repo_global (junction)"
+        else
+            ln -s "$repo_global" "$config_dir"
+            echo "  $config_dir -> $repo_global"
+        fi
     else
         echo "  $config_dir already exists — linking skills only"
         create_symlink "$config_dir/skills" "$skills_src"
     fi
 }
 
-# Always ensure skills symlinks exist inside repo global dirs
+# Always ensure skills/agents symlinks exist inside repo global dirs
 # (used when the full-dir symlink path is taken on a new machine)
 create_symlink "$REPO_DIR/global/claude/skills"   "$REPO_DIR/skills"
 create_symlink "$REPO_DIR/global/gemini/skills"   "$REPO_DIR/skills"
 create_symlink "$REPO_DIR/global/opencode/skills" "$REPO_DIR/skills"
 create_symlink "$REPO_DIR/global/codex/skills"    "$REPO_DIR/skills"
+create_symlink "$REPO_DIR/global/claude/agents"   "$REPO_DIR/agents"
+create_symlink "$REPO_DIR/global/gemini/agents"   "$REPO_DIR/agents"
 
 # Link tool config dirs (smart: full on new machine, skills-only on existing)
 link_tool_config "$HOME_DIR/.claude"   "$REPO_DIR/global/claude"   "$REPO_DIR/skills"

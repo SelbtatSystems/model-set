@@ -183,9 +183,9 @@ if ($isRealDir -and (Test-Path $contextMonitor)) {
 Write-Host ""
 
 # =====================================================
-# 5. Repo-internal skills symlinks
+# 5. Repo-internal skills/agents symlinks
 # =====================================================
-Write-Host "Removing repo-internal skills symlinks..." -ForegroundColor Yellow
+Write-Host "Removing repo-internal symlinks..." -ForegroundColor Yellow
 
 foreach ($tool in @("claude", "gemini", "opencode", "codex")) {
     $link = Join-Path $RepoDir "global\$tool\skills"
@@ -199,6 +199,21 @@ foreach ($tool in @("claude", "gemini", "opencode", "codex")) {
         }
     } else {
         Write-Host "  Skipped: global\$tool\skills (not found)" -ForegroundColor Yellow
+    }
+}
+
+foreach ($tool in @("claude", "gemini")) {
+    $link = Join-Path $RepoDir "global\$tool\agents"
+    if (Test-Path $link) {
+        $item = Get-Item $link -Force
+        if ($item.LinkType -eq "SymbolicLink" -or $item.LinkType -eq "Junction") {
+            $item.Delete()
+            Write-Host "  Removed: global\$tool\agents" -ForegroundColor Green
+        } else {
+            Write-Host "  Skipped: global\$tool\agents (not a symlink)" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "  Skipped: global\$tool\agents (not found)" -ForegroundColor Yellow
     }
 }
 

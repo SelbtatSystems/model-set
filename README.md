@@ -31,6 +31,30 @@ The setup script will:
 4. Install the Stitch extension for Gemini CLI with API key auth (`STITCH_API_KEY`)
 5. Generate `~/.mcp.json` from template (skipped if file already exists) and `~/.codex/config.toml`
 
+### Uninstall
+
+```bash
+# macOS/Linux
+./scripts/uninstall.sh
+
+# Windows
+.\scripts\uninstall.ps1
+
+# Skip confirmation prompts
+./scripts/uninstall.sh --force
+.\scripts\uninstall.ps1 -Force
+```
+
+The uninstall script reverses everything setup did: removes symlinks (restoring any `.backup` files), deletes generated configs (`~/.mcp.json`, `config.toml`), removes MCP servers, uninstalls CLI tools, and cleans up the screenshots directory. Local project folders (`.claude/`, `ralph/`, etc.) are only removed if you confirm a separate prompt.
+
+### Making Scripts Executable
+
+On macOS/Linux, you may need to make the scripts executable before first run:
+
+```bash
+chmod +x scripts/*.sh
+```
+
 ### Apply to a Project
 
 ```bash
@@ -71,7 +95,7 @@ model-set/
 │   ├── codex/
 │   ├── gemini/
 │   └── opencode/
-├── scripts/              # Setup scripts (setup.sh, setup.ps1)
+├── scripts/              # Setup & uninstall scripts
 └── local/ralph/          # Autonomous coding agent templates
 ```
 

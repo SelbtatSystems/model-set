@@ -135,11 +135,12 @@ def parse_context_from_transcript(transcript_path, model_name=""):
     context_window = get_context_window(model_name)
 
     try:
-        # Read only the tail of the file (~8KB) instead of the entire transcript
+        # Read tail of transcript; tool_result lines can be 10-50KB each,
+        # so 8KB often misses the last assistant message — use 64KB
         with open(transcript_path, "rb") as f:
             f.seek(0, 2)  # seek to end
             file_size = f.tell()
-            read_size = min(file_size, 8192)
+            read_size = min(file_size, 65536)
             f.seek(file_size - read_size)
             tail = f.read().decode("utf-8", errors="replace")
 
@@ -147,7 +148,7 @@ def parse_context_from_transcript(transcript_path, model_name=""):
         lines = tail.splitlines()
         if read_size < file_size:
             lines = lines[1:]
-        recent_lines = lines[-15:]
+        recent_lines = lines[-50:]
 
         for line in reversed(recent_lines):
             try:
@@ -295,9 +296,9 @@ def main():
         except (ValueError, OSError):
             term_width = 120
 
-        # Truncate to prevent line wrapping (last char leaks to line above)
-        if visible_width(status_line) >= term_width:
-            status_line = truncate_to_width(status_line, term_width - 1)
+        # Always truncate — width calc can undercount ambiguous chars (▓░├)
+        # across terminals; 2-col margin prevents last-char leak
+        status_line = truncate_to_width(status_line, term_width - 2)
 
         print(status_line)
 

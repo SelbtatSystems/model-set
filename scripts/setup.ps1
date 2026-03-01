@@ -145,7 +145,109 @@ if (-not $jqFound) {
 Write-Host ""
 
 # =====================================================
-# 1. Install/Update CLI Tools
+# 1. Create Global Symlinks
+# =====================================================
+# NOTE: Symlinks MUST be created before CLI tools are installed.
+# CLI installers (e.g. Claude Code) create ~/.claude as a real directory,
+# which prevents the full-directory symlink from being established later.
+Write-Host "Creating global config symlinks..." -ForegroundColor Yellow
+
+function New-SymlinkSafe {
+    param (
+        [string]$Link,
+        [string]$Target
+    )
+
+    if (Test-Path $Link) {
+        $existing = Get-Item $Link
+        if ($existing.LinkType -eq "SymbolicLink" -or $existing.LinkType -eq "Junction") {
+            Write-Host "  $Link -> already linked" -ForegroundColor Green
+            return
+        } else {
+            Write-Host "  $Link -> backing up existing to ${Link}.backup" -ForegroundColor Yellow
+            Move-Item $Link "${Link}.backup" -Force
+        }
+    }
+
+    $parent = Split-Path -Parent $Link
+    if (-not (Test-Path $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    try {
+        New-Item -ItemType SymbolicLink -Path $Link -Target $Target -Force | Out-Null
+        Write-Host "  $Link -> $Target" -ForegroundColor Green
+    } catch {
+        cmd /c mklink /J "$Link" "$Target" 2>$null
+        Write-Host "  $Link -> $Target (junction)" -ForegroundColor Green
+    }
+}
+
+# Link a tool's config directory.
+# New machine (dir doesn't exist): full symlink → repo/global/<tool>
+# Existing machine (real dir):     skills-only symlink inside existing dir
+function Link-ToolConfig {
+    param (
+        [string]$ConfigDir,   # e.g. ~/.claude
+        [string]$RepoGlobal,  # e.g. repo\global\claude
+        [string]$SkillsSrc    # e.g. repo\skills
+    )
+
+    if (Test-Path $ConfigDir) {
+        $existing = Get-Item $ConfigDir
+        if ($existing.LinkType -eq "SymbolicLink" -or $existing.LinkType -eq "Junction") {
+            Write-Host "  $ConfigDir -> already linked" -ForegroundColor Green
+        } else {
+            Write-Host "  $ConfigDir already exists - linking skills only" -ForegroundColor Yellow
+            New-SymlinkSafe -Link "$ConfigDir\skills" -Target $SkillsSrc
+        }
+    } else {
+        $parent = Split-Path -Parent $ConfigDir
+        if (-not (Test-Path $parent)) {
+            New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        }
+        try {
+            New-Item -ItemType SymbolicLink -Path $ConfigDir -Target $RepoGlobal -Force | Out-Null
+            Write-Host "  $ConfigDir -> $RepoGlobal" -ForegroundColor Green
+        } catch {
+            cmd /c mklink /J "$ConfigDir" "$RepoGlobal" 2>$null
+            Write-Host "  $ConfigDir -> $RepoGlobal (junction)" -ForegroundColor Green
+        }
+    }
+}
+
+# Always ensure skills/agents symlinks exist inside repo global dirs
+# (used when the full-dir symlink path is taken on a new machine)
+New-SymlinkSafe -Link "$RepoDir\global\claude\skills"   -Target "$RepoDir\skills"
+New-SymlinkSafe -Link "$RepoDir\global\gemini\skills"   -Target "$RepoDir\skills"
+New-SymlinkSafe -Link "$RepoDir\global\opencode\skills" -Target "$RepoDir\skills"
+New-SymlinkSafe -Link "$RepoDir\global\codex\skills"    -Target "$RepoDir\skills"
+New-SymlinkSafe -Link "$RepoDir\global\claude\agents"   -Target "$RepoDir\agents"
+New-SymlinkSafe -Link "$RepoDir\global\gemini\agents"   -Target "$RepoDir\agents"
+
+# Link tool config dirs (smart: full on new machine, skills-only on existing)
+Link-ToolConfig -ConfigDir "$HomeDir\.claude"   -RepoGlobal "$RepoDir\global\claude"   -SkillsSrc "$RepoDir\skills"
+Link-ToolConfig -ConfigDir "$HomeDir\.gemini"   -RepoGlobal "$RepoDir\global\gemini"   -SkillsSrc "$RepoDir\skills"
+Link-ToolConfig -ConfigDir "$HomeDir\.opencode" -RepoGlobal "$RepoDir\global\opencode" -SkillsSrc "$RepoDir\skills"
+Link-ToolConfig -ConfigDir "$HomeDir\.codex"    -RepoGlobal "$RepoDir\global\codex"    -SkillsSrc "$RepoDir\skills"
+
+# Existing installs: ~/.claude is a real dir, not a symlink — copy context-monitor
+$claudeDir = Join-Path $HomeDir ".claude"
+$linkItem = Get-Item $claudeDir -ErrorAction SilentlyContinue
+if ($linkItem -and -not $linkItem.Attributes.ToString().Contains("ReparsePoint")) {
+    Write-Host "  - Context monitor (existing install)..." -NoNewline
+    $scriptsDir = Join-Path $claudeDir "scripts"
+    if (-not (Test-Path $scriptsDir)) {
+        New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
+    }
+    Copy-Item (Join-Path $RepoDir "global\claude\scripts\context-monitor.py") (Join-Path $scriptsDir "context-monitor.py") -Force
+    Write-Host " copied" -ForegroundColor Green
+}
+
+Write-Host ""
+
+# =====================================================
+# 2. Install/Update CLI Tools
 # =====================================================
 Write-Host "Installing/Updating CLI tools..." -ForegroundColor Yellow
 
@@ -260,7 +362,7 @@ try {
 Write-Host ""
 
 # =====================================================
-# 2. Setup Stitch MCP (API key-based)
+# 3. Setup Stitch MCP (API key-based)
 # =====================================================
 Write-Host "Setting up Stitch MCP..." -ForegroundColor Yellow
 
@@ -306,7 +408,7 @@ if ($StitchKey -and $StitchKey -ne "AQ.STITCH_API_KEY") {
 Write-Host ""
 
 # =====================================================
-# 3. Check for .env file
+# 4. Check for .env file
 # =====================================================
 $EnvFile = Join-Path $RepoDir ".env"
 $EnvExample = Join-Path $RepoDir ".env.example"
@@ -317,105 +419,6 @@ if (-not (Test-Path $EnvFile)) {
     Write-Host "    Copy-Item `"$EnvExample`" `"$EnvFile`"" -ForegroundColor Cyan
     Write-Host ""
 }
-
-# =====================================================
-# 4. Create Global Symlinks
-# =====================================================
-Write-Host "Creating global config symlinks..." -ForegroundColor Yellow
-
-function New-SymlinkSafe {
-    param (
-        [string]$Link,
-        [string]$Target
-    )
-
-    if (Test-Path $Link) {
-        $existing = Get-Item $Link
-        if ($existing.LinkType -eq "SymbolicLink" -or $existing.LinkType -eq "Junction") {
-            Write-Host "  $Link -> already linked" -ForegroundColor Green
-            return
-        } else {
-            Write-Host "  $Link -> backing up existing to ${Link}.backup" -ForegroundColor Yellow
-            Move-Item $Link "${Link}.backup" -Force
-        }
-    }
-
-    $parent = Split-Path -Parent $Link
-    if (-not (Test-Path $parent)) {
-        New-Item -ItemType Directory -Path $parent -Force | Out-Null
-    }
-
-    try {
-        New-Item -ItemType SymbolicLink -Path $Link -Target $Target -Force | Out-Null
-        Write-Host "  $Link -> $Target" -ForegroundColor Green
-    } catch {
-        cmd /c mklink /J "$Link" "$Target" 2>$null
-        Write-Host "  $Link -> $Target (junction)" -ForegroundColor Green
-    }
-}
-
-# Link a tool's config directory.
-# New machine (dir doesn't exist): full symlink → repo/global/<tool>
-# Existing machine (real dir):     skills-only symlink inside existing dir
-function Link-ToolConfig {
-    param (
-        [string]$ConfigDir,   # e.g. ~/.claude
-        [string]$RepoGlobal,  # e.g. repo\global\claude
-        [string]$SkillsSrc    # e.g. repo\skills
-    )
-
-    if (Test-Path $ConfigDir) {
-        $existing = Get-Item $ConfigDir
-        if ($existing.LinkType -eq "SymbolicLink" -or $existing.LinkType -eq "Junction") {
-            Write-Host "  $ConfigDir -> already linked" -ForegroundColor Green
-        } else {
-            Write-Host "  $ConfigDir already exists - linking skills only" -ForegroundColor Yellow
-            New-SymlinkSafe -Link "$ConfigDir\skills" -Target $SkillsSrc
-        }
-    } else {
-        $parent = Split-Path -Parent $ConfigDir
-        if (-not (Test-Path $parent)) {
-            New-Item -ItemType Directory -Path $parent -Force | Out-Null
-        }
-        try {
-            New-Item -ItemType SymbolicLink -Path $ConfigDir -Target $RepoGlobal -Force | Out-Null
-            Write-Host "  $ConfigDir -> $RepoGlobal" -ForegroundColor Green
-        } catch {
-            cmd /c mklink /J "$ConfigDir" "$RepoGlobal" 2>$null
-            Write-Host "  $ConfigDir -> $RepoGlobal (junction)" -ForegroundColor Green
-        }
-    }
-}
-
-# Always ensure skills/agents symlinks exist inside repo global dirs
-# (used when the full-dir symlink path is taken on a new machine)
-New-SymlinkSafe -Link "$RepoDir\global\claude\skills"   -Target "$RepoDir\skills"
-New-SymlinkSafe -Link "$RepoDir\global\gemini\skills"   -Target "$RepoDir\skills"
-New-SymlinkSafe -Link "$RepoDir\global\opencode\skills" -Target "$RepoDir\skills"
-New-SymlinkSafe -Link "$RepoDir\global\codex\skills"    -Target "$RepoDir\skills"
-New-SymlinkSafe -Link "$RepoDir\global\claude\agents"   -Target "$RepoDir\agents"
-New-SymlinkSafe -Link "$RepoDir\global\gemini\agents"   -Target "$RepoDir\agents"
-
-# Link tool config dirs (smart: full on new machine, skills-only on existing)
-Link-ToolConfig -ConfigDir "$HomeDir\.claude"   -RepoGlobal "$RepoDir\global\claude"   -SkillsSrc "$RepoDir\skills"
-Link-ToolConfig -ConfigDir "$HomeDir\.gemini"   -RepoGlobal "$RepoDir\global\gemini"   -SkillsSrc "$RepoDir\skills"
-Link-ToolConfig -ConfigDir "$HomeDir\.opencode" -RepoGlobal "$RepoDir\global\opencode" -SkillsSrc "$RepoDir\skills"
-Link-ToolConfig -ConfigDir "$HomeDir\.codex"    -RepoGlobal "$RepoDir\global\codex"    -SkillsSrc "$RepoDir\skills"
-
-# Existing installs: ~/.claude is a real dir, not a symlink — copy context-monitor
-$claudeDir = Join-Path $HomeDir ".claude"
-$linkItem = Get-Item $claudeDir -ErrorAction SilentlyContinue
-if ($linkItem -and -not $linkItem.Attributes.ToString().Contains("ReparsePoint")) {
-    Write-Host "  - Context monitor (existing install)..." -NoNewline
-    $scriptsDir = Join-Path $claudeDir "scripts"
-    if (-not (Test-Path $scriptsDir)) {
-        New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
-    }
-    Copy-Item (Join-Path $RepoDir "global\claude\scripts\context-monitor.py") (Join-Path $scriptsDir "context-monitor.py") -Force
-    Write-Host " copied" -ForegroundColor Green
-}
-
-Write-Host ""
 
 # =====================================================
 # 5. Generate ~/.mcp.json from template

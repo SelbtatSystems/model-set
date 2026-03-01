@@ -116,150 +116,11 @@ fi
 echo ""
 
 # =====================================================
-# 1. Install/Update CLI Tools
+# 1. Create Global Symlinks
 # =====================================================
-echo "Installing/Updating CLI tools..."
-
-# Claude Code
-echo -n "  - Claude Code..."
-if command -v claude &> /dev/null; then
-    echo " (already installed: $(claude --version 2>/dev/null || echo 'unknown'))"
-else
-    echo " installing..."
-    curl -fsSL https://claude.ai/install.sh | bash
-    echo "    Installed!"
-fi
-
-# Gemini CLI
-echo -n "  - Gemini CLI..."
-if command -v gemini &> /dev/null; then
-    echo " (already installed)"
-else
-    echo " installing..."
-    npm install -g @google/gemini-cli
-    echo "    Installed!"
-fi
-
-# open-code
-echo -n "  - open-code..."
-if command -v opencode &> /dev/null; then
-    echo " (already installed)"
-else
-    echo " installing..."
-    if command -v brew &> /dev/null; then
-        brew install anomalyco/tap/opencode 2>/dev/null || npm install -g opencode-ai@latest
-    else
-        npm install -g opencode-ai@latest
-    fi
-    echo "    Installed!"
-fi
-
-# agent-browser
-echo -n "  - agent-browser..."
-if command -v agent-browser &> /dev/null; then
-    echo " (already installed)"
-else
-    echo " installing..."
-    npm install -g agent-browser
-    agent-browser install
-    echo "    Installed!"
-fi
-
-# agent-browser system dependencies (Chromium needs libnspr4, libnss3, etc.)
-echo -n "  - agent-browser system deps..."
-if npx playwright install-deps chromium 2>/dev/null; then
-    echo " installed"
-else
-    echo " (skipped — may need sudo)"
-fi
-
-# Ensure screenshots directory exists
-mkdir -p "$REPO_DIR/skills/agent-browser/screenshots"
-
-# Ollama
-echo -n "  - Ollama..."
-if command -v ollama &> /dev/null; then
-    echo " (already installed: $(ollama --version 2>/dev/null || echo 'unknown'))"
-else
-    echo " installing..."
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        if command -v brew &> /dev/null; then
-            brew install ollama
-        else
-            curl -fsSL https://ollama.com/install.sh | sh
-        fi
-    else
-        curl -fsSL https://ollama.com/install.sh | sh
-    fi
-    echo "    Installed!"
-fi
-
-# Codex CLI
-echo -n "  - Codex CLI..."
-if command -v codex &> /dev/null; then
-    echo " (already installed: $(codex --version 2>/dev/null || echo 'unknown'))"
-else
-    echo " installing..."
-    npm install -g @openai/codex
-    echo "    Installed!"
-fi
-
-echo ""
-
-# =====================================================
-# 2. Setup Stitch MCP (HTTP transport via API key)
-# =====================================================
-echo "Setting up Stitch MCP..."
-
-STITCH_KEY=$(grep '^STITCH_API_KEY=' "$REPO_DIR/.env" 2>/dev/null | cut -d'=' -f2- | xargs)
-if [ -n "$STITCH_KEY" ] && [ "$STITCH_KEY" != "AQ.STITCH_API_KEY" ]; then
-    echo "  Stitch API key found in .env"
-
-    # Add Stitch to Claude Code (HTTP transport, user scope)
-    if command -v claude &> /dev/null; then
-        claude mcp add stitch --transport http https://stitch.googleapis.com/mcp \
-            --header "X-Goog-Api-Key: $STITCH_KEY" -s user 2>/dev/null && \
-            echo "    Added stitch to Claude Code (user scope)" || \
-            echo "    Warning: Failed to add stitch to Claude Code"
-    fi
-
-    # Install Stitch extension for Gemini CLI
-    if command -v gemini &> /dev/null; then
-        gemini extensions install https://github.com/gemini-cli-extensions/stitch --auto-update 2>/dev/null && \
-            echo "    Installed stitch extension for Gemini CLI" || \
-            echo "    Stitch extension already installed or updated"
-
-        # Configure extension to use API key auth from STITCH_API_KEY
-        EXT_DIR="$HOME_DIR/.gemini/extensions/Stitch"
-        if [ -f "$EXT_DIR/gemini-extension-apikey.json" ]; then
-            sed "s/YOUR_API_KEY/$STITCH_KEY/g" "$EXT_DIR/gemini-extension-apikey.json" > "$EXT_DIR/gemini-extension.json"
-            echo "    Configured stitch extension with API key auth"
-        fi
-    fi
-else
-    echo "  WARNING: No STITCH_API_KEY in .env"
-    echo "  Add your Stitch API key to $REPO_DIR/.env"
-    echo "  Get one at: https://aistudio.google.com/apikey"
-fi
-
-echo ""
-
-# =====================================================
-# 3. Check for .env file
-# =====================================================
-ENV_FILE="$REPO_DIR/.env"
-ENV_EXAMPLE="$REPO_DIR/.env.example"
-
-if [ ! -f "$ENV_FILE" ]; then
-    echo "WARNING: .env file not found!"
-    echo "  Create it from .env.example and fill in your API keys:"
-    echo "    cp \"$ENV_EXAMPLE\" \"$ENV_FILE\""
-    echo ""
-fi
-
-# =====================================================
-# 4. Create Global Symlinks
-# =====================================================
+# NOTE: Symlinks MUST be created before CLI tools are installed.
+# CLI installers (e.g. Claude Code) create ~/.claude as a real directory,
+# which prevents the full-directory symlink from being established later.
 echo "Creating global config symlinks..."
 
 is_repo_link() {
@@ -363,6 +224,148 @@ if [ ! -L "$HOME_DIR/.claude" ] && [ -d "$HOME_DIR/.claude" ]; then
 fi
 
 echo ""
+
+# =====================================================
+# 2. Install/Update CLI Tools
+# =====================================================
+echo "Installing/Updating CLI tools..."
+
+# Claude Code
+echo -n "  - Claude Code..."
+if command -v claude &> /dev/null; then
+    echo " (already installed: $(claude --version 2>/dev/null || echo 'unknown'))"
+else
+    echo " installing..."
+    curl -fsSL https://claude.ai/install.sh | bash
+    echo "    Installed!"
+fi
+
+# Gemini CLI
+echo -n "  - Gemini CLI..."
+if command -v gemini &> /dev/null; then
+    echo " (already installed)"
+else
+    echo " installing..."
+    npm install -g @google/gemini-cli
+    echo "    Installed!"
+fi
+
+# open-code
+echo -n "  - open-code..."
+if command -v opencode &> /dev/null; then
+    echo " (already installed)"
+else
+    echo " installing..."
+    if command -v brew &> /dev/null; then
+        brew install anomalyco/tap/opencode 2>/dev/null || npm install -g opencode-ai@latest
+    else
+        npm install -g opencode-ai@latest
+    fi
+    echo "    Installed!"
+fi
+
+# agent-browser
+echo -n "  - agent-browser..."
+if command -v agent-browser &> /dev/null; then
+    echo " (already installed)"
+else
+    echo " installing..."
+    npm install -g agent-browser
+    agent-browser install
+    echo "    Installed!"
+fi
+
+# agent-browser system dependencies (Chromium needs libnspr4, libnss3, etc.)
+echo -n "  - agent-browser system deps..."
+if npx playwright install-deps chromium 2>/dev/null; then
+    echo " installed"
+else
+    echo " (skipped — may need sudo)"
+fi
+
+# Ensure screenshots directory exists
+mkdir -p "$REPO_DIR/skills/agent-browser/screenshots"
+
+# Ollama
+echo -n "  - Ollama..."
+if command -v ollama &> /dev/null; then
+    echo " (already installed: $(ollama --version 2>/dev/null || echo 'unknown'))"
+else
+    echo " installing..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        if command -v brew &> /dev/null; then
+            brew install ollama
+        else
+            curl -fsSL https://ollama.com/install.sh | sh
+        fi
+    else
+        curl -fsSL https://ollama.com/install.sh | sh
+    fi
+    echo "    Installed!"
+fi
+
+# Codex CLI
+echo -n "  - Codex CLI..."
+if command -v codex &> /dev/null; then
+    echo " (already installed: $(codex --version 2>/dev/null || echo 'unknown'))"
+else
+    echo " installing..."
+    npm install -g @openai/codex
+    echo "    Installed!"
+fi
+
+echo ""
+
+# =====================================================
+# 3. Setup Stitch MCP (HTTP transport via API key)
+# =====================================================
+echo "Setting up Stitch MCP..."
+
+STITCH_KEY=$(grep '^STITCH_API_KEY=' "$REPO_DIR/.env" 2>/dev/null | cut -d'=' -f2- | xargs)
+if [ -n "$STITCH_KEY" ] && [ "$STITCH_KEY" != "AQ.STITCH_API_KEY" ]; then
+    echo "  Stitch API key found in .env"
+
+    # Add Stitch to Claude Code (HTTP transport, user scope)
+    if command -v claude &> /dev/null; then
+        claude mcp add stitch --transport http https://stitch.googleapis.com/mcp \
+            --header "X-Goog-Api-Key: $STITCH_KEY" -s user 2>/dev/null && \
+            echo "    Added stitch to Claude Code (user scope)" || \
+            echo "    Warning: Failed to add stitch to Claude Code"
+    fi
+
+    # Install Stitch extension for Gemini CLI
+    if command -v gemini &> /dev/null; then
+        gemini extensions install https://github.com/gemini-cli-extensions/stitch --auto-update 2>/dev/null && \
+            echo "    Installed stitch extension for Gemini CLI" || \
+            echo "    Stitch extension already installed or updated"
+
+        # Configure extension to use API key auth from STITCH_API_KEY
+        EXT_DIR="$HOME_DIR/.gemini/extensions/Stitch"
+        if [ -f "$EXT_DIR/gemini-extension-apikey.json" ]; then
+            sed "s/YOUR_API_KEY/$STITCH_KEY/g" "$EXT_DIR/gemini-extension-apikey.json" > "$EXT_DIR/gemini-extension.json"
+            echo "    Configured stitch extension with API key auth"
+        fi
+    fi
+else
+    echo "  WARNING: No STITCH_API_KEY in .env"
+    echo "  Add your Stitch API key to $REPO_DIR/.env"
+    echo "  Get one at: https://aistudio.google.com/apikey"
+fi
+
+echo ""
+
+# =====================================================
+# 4. Check for .env file
+# =====================================================
+ENV_FILE="$REPO_DIR/.env"
+ENV_EXAMPLE="$REPO_DIR/.env.example"
+
+if [ ! -f "$ENV_FILE" ]; then
+    echo "WARNING: .env file not found!"
+    echo "  Create it from .env.example and fill in your API keys:"
+    echo "    cp \"$ENV_EXAMPLE\" \"$ENV_FILE\""
+    echo ""
+fi
 
 # =====================================================
 # 5. Generate ~/.mcp.json from template

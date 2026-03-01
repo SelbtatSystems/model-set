@@ -176,6 +176,24 @@ fi
 # Ensure screenshots directory exists
 mkdir -p "$REPO_DIR/skills/agent-browser/screenshots"
 
+# Ollama
+echo -n "  - Ollama..."
+if command -v ollama &> /dev/null; then
+    echo " (already installed: $(ollama --version 2>/dev/null || echo 'unknown'))"
+else
+    echo " installing..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        if command -v brew &> /dev/null; then
+            brew install ollama
+        else
+            curl -fsSL https://ollama.com/install.sh | sh
+        fi
+    else
+        curl -fsSL https://ollama.com/install.sh | sh
+    fi
+    echo "    Installed!"
+fi
+
 # Codex CLI
 echo -n "  - Codex CLI..."
 if command -v codex &> /dev/null; then

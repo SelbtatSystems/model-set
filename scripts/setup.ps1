@@ -209,6 +209,43 @@ if (-not (Test-Path $screenshotDir)) {
     New-Item -ItemType Directory -Path $screenshotDir -Force | Out-Null
 }
 
+# Ollama
+Write-Host "  - Ollama..." -NoNewline
+try {
+    $ollamaVersion = ollama --version 2>$null
+    Write-Host " (already installed: $ollamaVersion)" -ForegroundColor Green
+} catch {
+    Write-Host " installing..." -ForegroundColor Yellow
+    $Installed = $false
+
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        try {
+            winget install Ollama.Ollama --silent --accept-source-agreements --accept-package-agreements
+            $Installed = $true
+        } catch {}
+    }
+
+    if (-not $Installed) {
+        $OllamaInstaller = "$env:TEMP\OllamaSetup.exe"
+        try {
+            Invoke-WebRequest -Uri "https://ollama.com/download/OllamaSetup.exe" -OutFile $OllamaInstaller -UseBasicParsing
+            Start-Process -FilePath $OllamaInstaller -ArgumentList "/SILENT" -Wait
+            Remove-Item $OllamaInstaller -Force -ErrorAction SilentlyContinue
+            $Installed = $true
+        } catch {
+            Write-Host "    Failed to download installer. Install manually from https://ollama.com/download" -ForegroundColor Yellow
+        }
+    }
+
+    # Refresh PATH
+    $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" +
+                [System.Environment]::GetEnvironmentVariable("PATH", "User")
+
+    if ($Installed) {
+        Write-Host "    Installed!" -ForegroundColor Green
+    }
+}
+
 # Codex CLI
 Write-Host "  - Codex CLI..." -NoNewline
 try {

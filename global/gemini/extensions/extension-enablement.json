@@ -1,7 +1,8 @@
 {
   "Stitch": {
     "overrides": [
-      "/home/arlo/*"
+      "/home/arlo/*",
+      "/root/*"
     ]
   }
 }

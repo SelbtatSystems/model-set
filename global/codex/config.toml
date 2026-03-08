@@ -4,18 +4,19 @@
 
 # MODEL SETTINGS
 # ------------------------------------------------------------------------------
-model = "gpt-5.3-codex"
-model_reasoning_effort = "xhigh"
-[features]
-personality = "pragmatic"
+model = "gpt-5.4"
+model_reasoning_effort = "high"
 multi_agent = "true"
+personality = "pragmatic"
 
-
-# MCP Servers - Global (always available)
-# ------------------------------------------------------------------------------
 [mcp_servers.context7]
 url = "https://mcp.context7.com/mcp"
-http_headers = { "CONTEXT7_API_KEY" = "ctx7sk-2b3360ad-6737-4b2b-bdc9-443910f6a2dc" }
+env_http_headers = { CONTEXT7_API_KEY = "CONTEXT7_API_KEY" }
+
+[mcp_servers.stitch]
+command = "npx"
+args = ["-y", "@_davideast/stitch-mcp", "proxy"]
+env_vars = ["STITCH_API_KEY", "GOOGLE_CLOUD_PROJECT"]
 
 # AUTHORIZATION
 # ------------------------------------------------------------------------------
@@ -96,3 +97,11 @@ allow_domains = [
     "*.mcp.run",      # Common for hosted MCPs
     "localhost"       # For local MCP servers
 ]
+[projects."/home/ziteht/.openclaw"]
+trust_level = "trusted"
+
+[projects."/home/ziteht/projects"]
+trust_level = "trusted"
+
+[projects."/home/ziteht/model-set"]
+trust_level = "trusted"

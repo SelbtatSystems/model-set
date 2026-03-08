@@ -103,7 +103,7 @@ def get_git_status():
 
         suffix = f" {git_info}" if git_info else ""
 
-        return f" \033[90m·\033[0m ├ {branch}{suffix}"
+        return f" \033[90m·\033[0m  {branch}{suffix}"
 
     except Exception:
         return ""
@@ -286,7 +286,7 @@ def main():
             f"{model_name} "
             f"\033[90m·\033[0m {context_display} "
             f"\033[90m·\033[0m "
-            f"🗁 {directory}"
+            f"  {directory}"
             f"{git_status}"
         )
 

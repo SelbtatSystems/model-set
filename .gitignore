@@ -37,6 +37,10 @@ global/claude/stats-cache.json
 global/claude/todos/
 global/claude/plans/
 global/claude/tasks/
+global/claude/backups/
+global/claude/ide/
+global/claude/plugins/
+global/claude/telemetry/
 
 # Codex runtime data
 global/codex/.personality_migration
@@ -47,12 +51,16 @@ global/codex/sessions/
 global/codex/tmp/
 global/codex/version.json
 global/codex/shell_snapshots/
+global/codex/.tmp/
+global/codex/state_*.sqlite
 
 # Gemini runtime data
 global/gemini/state.json
 global/gemini/trustedFolders.json
 global/gemini/tmp/
 global/gemini/extensions/Stitch/gemini-extension.json
+global/gemini/history/
+global/gemini/projects.json
 
 # Agent-browser screenshots (generated output)
 skills/agent-browser/screenshots/*.png
@@ -78,3 +86,14 @@ _archive
 
 # Python cache
 __pycache__/
+
+# AI / Claude / Codex temporary files
+global/claude/backups/
+global/claude/ide/
+global/claude/plugins/
+global/claude/telemetry/
+global/codex/.tmp/
+global/codex/state_*.sqlite
+global/gemini/history/
+global/gemini/projects.json
+

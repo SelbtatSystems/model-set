@@ -1,9 +1,18 @@
 # AGENTS.md
 
 > Global context for OpenAI Codex CLI
+## Output Standards
+**Code** No bloated abstractions, premature generalization, or unexplained cleverness. Match existing codebase style. Meaningful variable names.
+
+**Cumunication** In all interactions and commit messages, be concise and sacrifice grammar for the sake of concision, be direct about problems. Quantify ("~200ms latency" not "might be slower"). When stuck, say so + what you tried. Don't hide uncertainty behind confidence.
+
+**Change Summary**(after every modification):
+"**Changes**: [file]: [what+why]
+**Untouched**: [file]: [why left alone]
+**Concerns**: [risks to verify]
+**Removed Dead Code** [list]"
 
 ## Git & GitHub
-
 - Use `gh` CLI for GitHub operations
 - Prefix branches with `sven/`
 
@@ -12,7 +21,6 @@
 ### Global MCPs (always available)
 - **stitch**: Generate UI designs from text prompts
 - **context7**: Documentation lookup and code context
-- **aiguide**: PostgreSQL/TimescaleDB documentation search
 
 ### Local MCPs (project-specific)
 - **postgres**: Database queries and schema management
@@ -20,42 +28,16 @@
 
 ## Browser Testing (agent-browser)
 
-**REQUIRED after every frontend change.**
-
-### Installation
-```bash
-npm install -g agent-browser
-agent-browser install  # Download Chromium
-```
-
-### Quick Workflow
-```bash
-agent-browser open http://localhost:3000/path
-agent-browser snapshot -i          # Get interactive elements
-agent-browser screenshot ~/model-set/skills/agent-browser/screenshots/test.png
-agent-browser click @e1            # Interact by ref
-agent-browser close
-```
-
-### Key Commands
-```bash
-agent-browser open <url>           # Navigate
-agent-browser snapshot -i          # Interactive elements w/ refs
-agent-browser click @e1            # Click by ref
-agent-browser fill @e2 "text"      # Fill input
-agent-browser screenshot ~/model-set/skills/agent-browser/screenshots/name.png  # Capture
-agent-browser wait --network       # Wait for API calls
-agent-browser close                # Done
-```
-
-### Snapshot Ref Format
-```
-@e1 [button] "Submit"           # Button with text
-@e2 [input type="email"]        # Email input
-@e3 [a href="/page"] "Link"     # Anchor link
-```
+Use `agent-browser` to debug and test in the browser 
 
 ### Best Practices
 - Always `snapshot -i` before interacting (refs invalidate on page changes)
 - Re-snapshot after navigation or dynamic content changes
-- Use `--headed` flag to see browser for debugging
+
+
+**REQUIRED after every feature implementation and frontend change.**
+
+Run the `design-review` skill after completing UI work. The agent reviews visual consistency, accessibility, responsiveness, and code health against project design systems and S-Tier SaaS standards.
+
+**Blockers and High-Priority findings must be fixed before considering the work done.**
+Do not leave critical issues for follow-up — fix them immediately, then re-run the `design-review` to verify.

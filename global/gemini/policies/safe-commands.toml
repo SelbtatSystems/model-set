@@ -57,7 +57,7 @@ name = "Block Dangerous Shell Commands"
 toolName = "run_shell_command"
 commandPrefix = ["rm -rf", "sudo"]
 decision = "deny"
-priority = 1000 # Higher priority than allows
+priority = 999
 
 # -- ALLOW RULES --
 [[rule]]
@@ -90,7 +90,7 @@ name = "Block Sensitive Files"
 operation = "read"
 pathPattern = ["**/.env*", "**/secrets/**"]
 decision = "deny"
-priority = 1000
+priority = 999
 
 # -- ALLOW RULES (Code Files) --
 [[rule]]

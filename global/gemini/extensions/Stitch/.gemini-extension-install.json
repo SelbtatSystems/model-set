@@ -1,5 +1,6 @@
 {
   "source": "https://github.com/gemini-cli-extensions/stitch",
   "type": "github-release",
+  "autoUpdate": true,
   "releaseTag": "v0.1.4"
 }

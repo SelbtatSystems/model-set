@@ -9,6 +9,44 @@ REPO_DIR="$(dirname "$SCRIPT_DIR")"
 HOME_DIR="$HOME"
 CURRENT_DIR="$(pwd)"
 
+ensure_path_entry() {
+    local entry="$1"
+    case ":$PATH:" in
+        *":$entry:"*) ;;
+        *)
+            export PATH="$entry:$PATH"
+            hash -r 2>/dev/null || true
+            ;;
+    esac
+}
+
+persist_user_local_bin_path() {
+    local local_bin="$HOME/.local/bin"
+    local shell_name rc_file path_line
+
+    [ -d "$local_bin" ] || return 0
+
+    shell_name="$(basename "${SHELL:-bash}")"
+    case "$shell_name" in
+        zsh) rc_file="$HOME/.zshrc" ;;
+        fish) rc_file="" ;;
+        *) rc_file="$HOME/.bashrc" ;;
+    esac
+
+    if [ -z "$rc_file" ]; then
+        echo "    Note: add $local_bin to your shell PATH manually."
+        return 0
+    fi
+
+    path_line='export PATH="$HOME/.local/bin:$PATH"'
+    if [ -f "$rc_file" ] && grep -Fqx "$path_line" "$rc_file"; then
+        return 0
+    fi
+
+    printf '\n%s\n' "$path_line" >> "$rc_file"
+    echo "    Added ~/.local/bin to PATH in $rc_file"
+}
+
 echo "model-set Setup"
 echo "==============="
 echo ""
@@ -232,7 +270,21 @@ if command -v claude &> /dev/null; then
 else
     echo " installing..."
     curl -fsSL https://claude.ai/install.sh | bash
-    echo "    Installed!"
+
+    # Claude installs its launcher into ~/.local/bin on Linux/macOS.
+    if [ -x "$HOME_DIR/.local/bin/claude" ]; then
+        ensure_path_entry "$HOME_DIR/.local/bin"
+        persist_user_local_bin_path
+    fi
+
+    if command -v claude &> /dev/null; then
+        echo "    Installed: $(claude --version 2>/dev/null || echo 'unknown')"
+    else
+        echo "  ERROR: Claude installed to $HOME_DIR/.local/bin/claude but is not on PATH."
+        echo "  Run: export PATH=\"\$HOME/.local/bin:\$PATH\""
+        echo "  Then re-run setup."
+        exit 1
+    fi
 fi
 
 # Gemini CLI

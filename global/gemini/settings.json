@@ -28,5 +28,9 @@
     "showUserIdentity": true,
     "useBackgroundColor": false,
     "loadingPhrases": "off"
+  },
+  "ide": {
+    "hasSeenNudge": true,
+    "enabled": true
   }
 }

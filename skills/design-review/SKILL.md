@@ -21,20 +21,26 @@ Before any review work, establish the project's design context.
 
 1. Look for `DESIGN.md` in the project root directory
 2. **If DESIGN.md exists:** Read it — this is the primary styling reference for the review. All color, typography, component, and layout decisions must be validated against this file.
-3. **If DESIGN.md does NOT exist:** Ask the user: *"No DESIGN.md found. Create one using the design-md skill?"*
-   - If yes: invoke the `design-md` skill to generate it, then read the result
-   - If no: proceed without project-specific tokens (use only `references/design-principles.md`)
+3. **If DESIGN.md does NOT exist:** 
+   - Invoke the `design-md` skill to generate it, then read the result
 
-### Load Design Principles
 
-Read `references/design-principles.md` (bundled with this skill) — the S-Tier SaaS design checklist. This is the universal quality bar applied to every review regardless of project.
+## Guidelines Source
+
+Fetch fresh guidelines before each review:
+
+```
+https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/main/command.md
+```
+
+Use WebFetch to retrieve the latest rules. The fetched content contains all the rules and output format instructions.
 
 ### Context Hierarchy
 
 | Priority | Source | Scope |
 |----------|--------|-------|
 | 1 | `DESIGN.md` (project root) | Project-specific tokens, colors, components, atmosphere |
-| 2 | `references/design-principles.md` | Universal S-Tier SaaS quality checklist |
+| 2 | `https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/main/command.md` | Universal S-Tier SaaS quality checklist |
 
 When conflicts exist, `DESIGN.md` takes precedence — it defines the project's intentional design language.
 

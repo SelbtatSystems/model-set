@@ -111,11 +111,11 @@ def get_git_status():
 
 # Context window sizes by model keyword (tokens)
 MODEL_CONTEXT_WINDOWS = {
-    "opus": 200_000,
-    "sonnet": 200_000,
+    "opus": 1_000_000,
+    "sonnet": 1_000_000,
     "haiku": 200_000,
 }
-DEFAULT_CONTEXT_WINDOW = 200_000
+DEFAULT_CONTEXT_WINDOW = 1_000_000
 
 
 def get_context_window(model_name):

@@ -87,3 +87,4 @@ _archive
 
 # Python cache
 __pycache__/
+global/codex/.tmp/

@@ -8,7 +8,7 @@ allowed-tools: mcp__stitch__* Read Write Edit Bash Glob Grep WebFetch AskUserQue
 
 You are a **Page Redesign Engineer**. Your job is to transform existing React pages through Stitch UI generation and convert them back to production-ready React components.
 
-**Critical constraint**: Only generate **page content** for `PageRenderer` - headers, sidebars, and breadcrumbs are already handled by the app shell.
+**Critical constraint**: Only generate **page content** for `PageRenderer` — headers, sidebars, and breadcrumbs are already handled by the app shell. Every Stitch prompt MUST state this explicitly.
 
 ## Architecture Context
 
@@ -24,26 +24,45 @@ Pages use:
 - React Query for data fetching
 - Context: `useAuth`, `useOrganization`, `useNavigation`
 
+## Stitch Rate Limiting
+
+**After every Stitch MCP call**, wait 1 minute before making the next call:
+
+```bash
+sleep 60
+```
+
+This applies to ALL `mcp__stitch__*` calls: `generate_screen_from_text`, `get_screen`, `list_screens`, etc. No exceptions.
+
 ---
 
 ## Phase 1: Analyze Existing Page
 
-**Goal**: Document current functionality before redesign.
+**Goal**: Document current functionality and identify all components before redesign.
 
-1. **Read the target page file** and its imported components
+1. **Read the target page file** and ALL its imported local components
 2. **Identify and document**:
    - **Functionality**: Event handlers, API calls (useQuery, useMutation), state (useState, useReducer), custom hooks
    - **Layout**: Component hierarchy, grid/flex structure, responsive breakpoints
    - **Navigation**: Internal navigation (tabs, links), external routing (useNavigate)
    - **Accessibility**: ARIA labels, keyboard nav, semantic elements
    - **Data dependencies**: Props, context usage, query keys
-3. **Write analysis** to `.agents/skills/page-redesign/.temp/page-analysis.md`
+   - **Component map**: Every local component imported by this page — file path, what it renders, what props/data it needs
+3. **Write analysis** to `/tmp/page-redesign/page-analysis.md`
 
-Use this template structure:
+Use this template:
 
 ```markdown
 # Page Analysis: {PageName}
 **File**: apps/agcore-web/src/app/{path}/{PageName}.tsx
+
+## Component Map
+| Component | File | Renders | Props/Data |
+|-----------|------|---------|------------|
+| {PageName} | {path} | Parent layout | useQuery(...), useAuth |
+| StatsBar | ./StatsBar.tsx | 4 metric cards | stats: Stats[] |
+| ActivityFeed | ./ActivityFeed.tsx | Scrollable list | entries: Entry[] |
+| ... | ... | ... | ... |
 
 ## Functionality
 - API calls: [list endpoints with query keys]
@@ -52,7 +71,7 @@ Use this template structure:
 - Event handlers: [key interactions]
 
 ## Layout Structure
-- [component tree]
+- [component tree with grid/flex details]
 - [responsive breakpoints]
 
 ## Navigation
@@ -67,24 +86,24 @@ Use this template structure:
 - Context: useAuth, useOrganization
 - Queries: [query keys]
 - Props: [if any]
-
-## Imported Components
-- [list local and shared-ui components]
 ```
 
 ---
 
 ## Phase 2: Create Stitch Prompt
 
-**Goal**: Generate optimized prompt using enhance-prompt patterns + DESIGN.md.
+**Goal**: Use the `enhance-prompt` skill to Build a single prompt for the ENTIRE page, describing all components as sections.
 
-1. **Read `DESIGN.md`** Section 9 (Stitch Prompt Guidance)
-2. **Read `temp/page-analysis.md`**
-3. **Construct prompt** for page content only:
+1. **Read `/tmp/page-redesign/page-analysis.md`**
+2. **Construct prompt** — the prompt MUST describe each component from the Component Map as a labeled section of the page:
 
 ```markdown
 A professional {page type} with sage green accents and clean data visualization.
-This is PAGE CONTENT ONLY - no header, sidebar, or navigation chrome.
+
+**IMPORTANT: This is PAGE CONTENT ONLY.** This page is rendered inside a PageRenderer
+that already provides the app header, sidebar navigation, and breadcrumbs.
+Do NOT include any header, sidebar, top navigation bar, or breadcrumb trail.
+Start directly with the page content.
 
 **DESIGN SYSTEM (REQUIRED):**
 - Platform: Web, Desktop-first (2560px canvas)
@@ -99,8 +118,9 @@ This is PAGE CONTENT ONLY - no header, sidebar, or navigation chrome.
 - Icons: Material Symbols Outlined (FILL 0, WGHT 400)
 
 **Page Structure:**
-1. **{Section 1}**: {Description}
-2. **{Section 2}**: {Description}
+1. **{Component1 section}**: {What it shows, layout details}
+2. **{Component2 section}**: {What it shows, layout details}
+3. **{Component3 section}**: {What it shows, layout details}
 ...
 
 **Functional Notes:**
@@ -108,124 +128,143 @@ This is PAGE CONTENT ONLY - no header, sidebar, or navigation chrome.
 - {Data display requirements}
 ```
 
-4. **Output** to `.agents/skills/page-redesign/.temp/stitch-prompt.md`
+4. **Output** to `/tmp/page-redesign/stitch-prompt.md`
 
 ---
 
 ## Phase 3: Generate in Stitch
 
-**Goal**: Create the UI design using Stitch MCP.
+**Goal**: Create ONE screen for the entire page.
 
 1. **Get project ID**: `17628915167374403984` (from DESIGN.md)
 2. **Call Stitch MCP**:
    ```
    mcp__stitch__generate_screen_from_text
      projectId: "17628915167374403984"
-     prompt: [contents of temp/stitch-prompt.md]
+     prompt: [contents of /tmp/page-redesign/stitch-prompt.md]
      deviceType: "DESKTOP"
      modelId: "GEMINI_3_PRO"
    ```
-3. **Wait for generation** (up to 5 minutes for complex pages)
-4. **Store returned `screenId`**
-
----
-
-## Phase 4: User Review
-
-**Goal**: Allow user to review and optionally modify in Stitch UI.
-
-1. **Inform user**: "Screen generated. Review at https://stitch.withgoogle.com"
-2. **Ask**: "Did you make any changes in Stitch?"
-
-**If NO changes**: Proceed with original screenId
-
-**If YES changes**:
-1. Call `mcp__stitch__list_screens` with projectId
-2. Present screen list to user
-3. User selects which screen to use
-4. Proceed with selected screenId
-
----
-
-## Phase 5: Convert to React
-
-**Goal**: Transform Stitch HTML to production React components.
-
-Follow the react-components skill pattern:
-
-1. **Fetch screen data**:
-   ```
-   mcp__stitch__get_screen
-     projectId: "17628915167374403984"
-     screenId: [screenId from Phase 3/4]
-   ```
-
-2. **Download HTML** via bash (AI fetch tools fail on Google Cloud Storage):
+3. **Wait 1 minute** (rate limiting):
    ```bash
-   curl -L -f -sS "[htmlCode.downloadUrl]" -o .agents/skills/page-redesign/.temp/source.html
+   sleep 60
    ```
-
-3. **Parse HTML**:
-   - Extract Tailwind config from `<head>`
-   - Map colors to CSS variables:
-     - `#1a2b1f` → `var(--text-primary)`
-     - `#4b5563` → `var(--text-secondary)`
-     - `#7da36d` → `var(--accent)`
-     - `#f8f9f8` → `var(--surface)`
-     - etc.
-   - Identify component boundaries
-
-4. **Create modular components**:
+4. **Wait 4 minutes** for generation to complete. Stitch is slow — calling too early will fail:
+   ```bash
+   sleep 240
    ```
-   .agents/skills/page-redesign/.temp/redesign/{PageName}/
-   ├── {PageName}Redesign.tsx    # Main component
-   ├── [SubComponents].tsx       # Extracted sub-components
-   ├── mockData.ts               # Static text/URLs
-   └── types.ts                  # TypeScript interfaces
+5. **Call `mcp__stitch__get_screen`** to verify the screen exists and retrieve the `screenId`.
+6. **Wait 1 minute** (rate limiting):
+   ```bash
+   sleep 60
    ```
-
-5. **Apply architecture checklist**:
-   - [ ] Logic in custom hooks
-   - [ ] Props use `Readonly<T>`
-   - [ ] No hardcoded hex values (use CSS variables)
-   - [ ] Dark mode classes applied
+7. **Retry if not found**: If `get_screen` fails or returns no screen data, wait 5 more minutes and try once more:
+   ```bash
+   sleep 300
+   ```
+   Call `get_screen` again. Wait 1 minute after. If it still fails, report the failure to the user.
+8. **Store returned `screenId`**
 
 ---
 
-## Phase 6: Integrate (Replace In-Place)
+## Phase 4: Convert to React (via react-components skill)
 
-**Goal**: Replace original page with redesigned version.
+**Goal**: Use the `react-components` skill to convert Stitch HTML into modular React components.
 
-1. **Backup original**: `{PageName}.tsx` → `{PageName}.tsx.bak`
+### 4a: Set up workspace
 
-2. **Copy redesigned component** to original location
+Create the workspace and copy in the react-components scaffolding from its source location:
 
-3. **Preserve from original**:
-   - Import statements for hooks/context
-   - API integration (useQuery calls with same query keys)
+```bash
+mkdir -p /tmp/page-redesign/redesign
+cp -r /home/ziteht/model-set/skills/react-components/scripts /tmp/page-redesign/redesign/
+cp -r /home/ziteht/model-set/skills/react-components/resources /tmp/page-redesign/redesign/
+cp /home/ziteht/model-set/skills/react-components/package.json /tmp/page-redesign/redesign/
+cp /home/ziteht/model-set/skills/react-components/package-lock.json /tmp/page-redesign/redesign/
+cd /tmp/page-redesign/redesign && npm install
+```
+
+### 4b: Download HTML
+
+Use the react-components fetch script (AI fetch tools fail on Google Cloud Storage):
+```bash
+bash /tmp/page-redesign/redesign/scripts/fetch-stitch.sh "[htmlCode.downloadUrl]" "/tmp/page-redesign/redesign/temp/source.html"
+```
+
+### 4c: Convert following react-components rules
+
+Follow the `react-components` SKILL.md execution steps:
+
+1. **Extract Tailwind config** from the HTML `<head>`, sync with `/tmp/page-redesign/redesign/resources/style-guide.json`
+2. **Create `src/data/mockData.ts`** with static text/URLs from the design
+3. **Draft components** using `/tmp/page-redesign/redesign/resources/component-template.tsx` as base — replace all `StitchComponent` placeholders with actual names
+4. **Run validation** on each component:
+   ```bash
+   cd /tmp/page-redesign/redesign && npm run validate src/components/{Component}.tsx
+   ```
+5. **Verify against** `/tmp/page-redesign/redesign/resources/architecture-checklist.md`:
+   - [ ] Logic extracted to custom hooks
+   - [ ] No monolithic files — modular components
+   - [ ] All static text in mockData.ts
+   - [ ] Props use `Readonly<T>`
+   - [ ] No hardcoded hex values — use theme-mapped Tailwind classes
+   - [ ] Dark mode (`dark:`) applied
+   - [ ] Google license headers removed
+
+### 4d: Map output to original component structure
+
+After react-components produces its modular output, map the generated components back to the original page's component structure from the Phase 1 Component Map:
+
+- **Direct match**: A generated component clearly maps to an original component → use it
+- **Stitch merged sections**: Two original components became one visual block in Stitch → keep them merged as one component. Adopt Stitch's layout.
+- **Stitch split a section**: One original component became multiple in the output → keep the split if it makes sense, or recombine
+- **New structure**: If Stitch restructured the layout in a way that's better than the original → adopt the new structure
+
+**Do NOT force the output into the old component tree.** The goal is a better design, not a 1:1 copy of the old file organization.
+
+---
+
+## Phase 5: Integrate (Replace In-Place)
+
+**Goal**: Replace original page with redesigned version, preserving all business logic.
+
+1. **Backup originals**: `{Component}.tsx` → `{Component}.tsx.bak` for each file being replaced
+
+2. **Copy components** from `/tmp/page-redesign/redesign/src/components/` to the original page directory
+
+3. **Re-attach business logic** from the originals:
+   - Import statements for hooks/context (`useAuth`, `useOrganization`, etc.)
+   - API integration (`useQuery`/`useMutation` calls with same query keys)
    - Event handlers that affect app state
-   - TypeScript types
+   - TypeScript types and interfaces
+   - Replace mockData references with real data hooks where applicable
 
-4. **Update imports** in parent files if needed
+4. **Map CSS** — replace any remaining theme-mapped Tailwind classes with CSS variables:
+   - `#1a2b1f` → `var(--text-primary)`
+   - `#4b5563` → `var(--text-secondary)`
+   - `#7da36d` → `var(--accent)`
+   - `#f8f9f8` → `var(--surface)`
+   - `rgba(42,45,43,0.15)` → `var(--border)`
+   - `#dc2626` → `var(--error)`
 
-5. **Verify integration**:
+5. **Update imports** in parent files if component names or structure changed
+
+6. **Verify integration**:
    - [ ] All useQuery hooks preserved
    - [ ] Context usage (useAuth, useOrganization) intact
    - [ ] Navigation callbacks working
    - [ ] CSS variables used (no hardcoded colors)
    - [ ] Responsive breakpoints maintained
+   - [ ] No header/sidebar/breadcrumbs in generated components
 
 ---
 
-## Phase 7: Cleanup
+## Phase 6: Cleanup
 
 **Goal**: Remove temporary files.
 
-1. Delete `.agents/skills/page-redesign/.temp/page-analysis.md`
-2. Delete `.agents/skills/page-redesign/.temp/stitch-prompt.md`
-3. Delete `.agents/skills/page-redesign/.temp/source.html`
-4. Delete `.agents/skills/page-redesign/.temp/redesign/` directory
-5. **Keep** `.bak` file for rollback option
+1. Delete entire `/tmp/page-redesign/` directory (workspace, prompts, HTML, everything)
+2. **Keep** `.bak` files for rollback option
 
 ---
 
@@ -253,7 +292,10 @@ For dark mode, add `.dark` class variants or use `dark:` Tailwind prefix.
 - **HTML download fails**: Verify URL is quoted in bash command
 - **Missing styles**: Check Tailwind config extraction, verify CSS variable mapping
 - **TypeScript errors**: Run `tsc --noEmit` and fix type issues
-- **Rollback needed**: `mv {PageName}.tsx.bak {PageName}.tsx`
+- **Validation fails**: Fix issues reported by `npm run validate`, re-run
+- **Rollback needed**: Restore from `.bak` files
+- **Screen not found after 10 min**: Retry after 5 more min (built into Phase 3)
+- **Rate limiting errors**: Ensure 1 min sleep after every Stitch MCP call
 
 ---
 
@@ -263,12 +305,14 @@ For dark mode, add `.dark` class variants or use `dark:` Tailwind prefix.
 User: "Redesign the AgTimeDashboard page"
 
 Agent:
-1. Reads apps/agcore-web/src/app/AgTime/AgTimeDashboard.tsx
-2. Analyzes: 4 stat cards, activity feed, date picker, tabs
-3. Creates prompt with design system
-4. Generates in Stitch (wait ~3-5 min)
-5. User reviews in Stitch UI
-6. Downloads HTML, converts to React
-7. Replaces AgTimeDashboard.tsx
-8. Cleans up temp files
+1. Reads AgTimeDashboard.tsx + StatsBar.tsx + ActivityFeed.tsx + TimeChart.tsx
+2. Documents component map: 4 components, their props, shared state
+3. Creates ONE Stitch prompt describing full page with all sections
+4. Generates in Stitch (sleep 60 rate limit + sleep 600 wait)
+5. Retrieves screen (sleep 60 rate limit)
+6. Sets up react-components workspace in /tmp/page-redesign/redesign/
+7. Downloads HTML, converts to modular React, validates
+8. Maps output back to component structure (merges/splits as needed)
+9. Replaces originals, re-attaches useQuery/useAuth/handlers
+10. Cleans up /tmp/page-redesign/, keeps .bak files
 ```

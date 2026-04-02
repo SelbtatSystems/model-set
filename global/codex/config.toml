@@ -5,10 +5,12 @@
 # MODEL SETTINGS
 # ------------------------------------------------------------------------------
 model = "gpt-5.4"
-model_reasoning_effort = "high"
+model_reasoning_effort = "xhigh"
 multi_agent = "true"
 personality = "pragmatic"
 
+# MCP Servers - Global (always available)
+# ------------------------------------------------------------------------------
 [mcp_servers.context7]
 url = "https://mcp.context7.com/mcp"
 env_http_headers = { CONTEXT7_API_KEY = "CONTEXT7_API_KEY" }
@@ -104,4 +106,10 @@ trust_level = "trusted"
 trust_level = "trusted"
 
 [projects."/home/ziteht/model-set"]
+trust_level = "trusted"
+
+[projects."/home/ziteht/projects/AgCore"]
+trust_level = "trusted"
+
+[projects."/home/ziteht"]
 trust_level = "trusted"

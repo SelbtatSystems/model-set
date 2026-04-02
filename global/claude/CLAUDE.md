@@ -11,7 +11,7 @@
 "**Changes**: [file]: [what+why]
 **Untouched**: [file]: [why left alone]
 **Concerns**: [risks to verify]
-**Removed Dead Code** [list]""
+**Removed Dead Code** [list]"
 
 ## Git & GitHub
 - Use `gh` CLI for GitHub operations

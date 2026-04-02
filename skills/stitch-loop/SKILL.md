@@ -85,9 +85,18 @@ Use the Stitch MCP tools to generate the page:
    - `projectId`: The project ID
    - `prompt`: The full prompt from the baton (including design system block)
    - `deviceType`: `DESKTOP` (or as specified)
-4. **Retrieve assets**: Call `[prefix]:get_screen` to get:
+4. **Wait 10 minutes** before retrieving. Stitch is slow — calling `get_screen` too early will fail:
+   ```bash
+   sleep 600
+   ```
+5. **Retrieve assets**: Call `[prefix]:get_screen` to get:
    - `htmlCode.downloadUrl` — Download and save as `queue/{page}.html`
    - `screenshot.downloadUrl` — Download and save as `queue/{page}.png`
+6. **Retry if not found**: If `get_screen` fails or returns no screen data, wait 5 more minutes and try once more:
+   ```bash
+   sleep 300
+   ```
+   Call `get_screen` again. If it still fails after this retry, report the failure and stop the loop.
 
 ### Step 4: Integrate into Site
 
@@ -196,3 +205,4 @@ This skill works best with the `design-md` skill:
 | Inconsistent styles | Ensure DESIGN.md is up-to-date and copied correctly |
 | Loop stalls | Verify `next-prompt.md` was updated with valid frontmatter |
 | Navigation broken | Check all internal links use correct relative paths |
+| Screen not found after generation | Wait full 10 min, retry once after 5 more min |

@@ -32,5 +32,8 @@
   "ide": {
     "hasSeenNudge": true,
     "enabled": true
+  },
+  "model": {
+    "name": "gemini-3.1-pro-preview"
   }
 }

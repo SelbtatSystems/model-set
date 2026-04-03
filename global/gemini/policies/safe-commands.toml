@@ -50,16 +50,15 @@ priority = 100
 
 # 2. SHELL / BASH COMMAND PERMISSIONS
 # ------------------------------------------------------------------------------
+# The validator EXPLICITLY requires "run_shell_command" for these rules.
 
-# -- DENY RULES (High Priority) --
 [[rule]]
 name = "Block Dangerous Shell Commands"
-toolName = "run_shell_command"
+toolName = "run_shell_command" 
 commandPrefix = ["rm -rf", "sudo"]
 decision = "deny"
 priority = 999
 
-# -- ALLOW RULES --
 [[rule]]
 name = "Allow Agent Browser Commands"
 toolName = "run_shell_command"
@@ -87,6 +86,7 @@ priority = 100
 # -- DENY RULES (Secrets protection) --
 [[rule]]
 name = "Block Sensitive Files"
+toolName = "google:file_system"       # Fully qualified name
 operation = "read"
 pathPattern = ["**/.env*", "**/secrets/**"]
 decision = "deny"
@@ -95,13 +95,8 @@ priority = 999
 # -- ALLOW RULES (Code Files) --
 [[rule]]
 name = "Allow Source Code Access"
+toolName = "google:file_system"
 operation = ["read", "write", "edit"]
-pathPattern = [
-    "**/*.json", 
-    "**/*.js", 
-    "**/*.ts", 
-    "**/*.tsx", 
-    "**/*.py"
-]
+pathPattern = ["**/*.json", "**/*.js", "**/*.ts", "**/*.tsx", "**/*.py"]
 decision = "allow"
 priority = 100

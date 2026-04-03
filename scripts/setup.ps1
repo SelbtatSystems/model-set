@@ -219,15 +219,12 @@ function Link-ToolConfig {
     }
 }
 
-# Always ensure skills/agents symlinks exist inside repo global dirs
+# Always ensure skills symlinks exist inside repo global dirs
 # (used when the full-dir symlink path is taken on a new machine)
 New-SymlinkSafe -Link "$RepoDir\global\claude\skills"   -Target "$RepoDir\skills"
 New-SymlinkSafe -Link "$RepoDir\global\gemini\skills"   -Target "$RepoDir\skills"
 New-SymlinkSafe -Link "$RepoDir\global\opencode\skills" -Target "$RepoDir\skills"
 New-SymlinkSafe -Link "$RepoDir\global\codex\skills"    -Target "$RepoDir\skills"
-New-SymlinkSafe -Link "$RepoDir\global\claude\agents"   -Target "$RepoDir\agents"
-New-SymlinkSafe -Link "$RepoDir\global\gemini\agents"   -Target "$RepoDir\agents"
-
 # Link tool config dirs (always full symlink, backup existing)
 Link-ToolConfig -ConfigDir "$HomeDir\.claude"   -RepoGlobal "$RepoDir\global\claude"
 Link-ToolConfig -ConfigDir "$HomeDir\.gemini"   -RepoGlobal "$RepoDir\global\gemini"

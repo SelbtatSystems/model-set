@@ -241,15 +241,12 @@ link_tool_config() {
     fi
 }
 
-# Always ensure skills/agents symlinks exist inside repo global dirs
+# Always ensure skills symlinks exist inside repo global dirs
 # (used when the full-dir symlink path is taken on a new machine)
 create_symlink "$REPO_DIR/global/claude/skills"   "$REPO_DIR/skills"
 create_symlink "$REPO_DIR/global/gemini/skills"   "$REPO_DIR/skills"
 create_symlink "$REPO_DIR/global/opencode/skills" "$REPO_DIR/skills"
 create_symlink "$REPO_DIR/global/codex/skills"    "$REPO_DIR/skills"
-create_symlink "$REPO_DIR/global/claude/agents"   "$REPO_DIR/agents"
-create_symlink "$REPO_DIR/global/gemini/agents"   "$REPO_DIR/agents"
-
 # Link tool config dirs (always full symlink, backup existing)
 link_tool_config "$HOME_DIR/.claude"   "$REPO_DIR/global/claude"
 link_tool_config "$HOME_DIR/.gemini"   "$REPO_DIR/global/gemini"

@@ -98,7 +98,7 @@
   "enabledPlugins": {
     "pg@aiguide": true
   },
+  "effortLevel": "xhigh",
   "skipDangerousModePermissionPrompt": true,
-  "theme": "dark",
-  "effortLevel": "high"
+  "theme": "dark"
 }

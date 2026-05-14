@@ -4,10 +4,13 @@
 
 # MODEL SETTINGS
 # ------------------------------------------------------------------------------
-model = "gpt-5.4"
+model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 multi_agent = "true"
 personality = "pragmatic"
+
+[tui]
+notification_condition = "always"
 
 # MCP Servers - Global (always available)
 # ------------------------------------------------------------------------------

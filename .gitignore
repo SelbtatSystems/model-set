@@ -41,10 +41,15 @@ global/claude/todos/
 global/claude/plans/
 global/claude/tasks/
 global/claude/telemetry/
+global/claude/sessions/*.json
+global/claude/.last-cleanup
+global/claude/mcp-needs-auth-cache.json
 
 # Codex runtime data
 global/codex/.personality_migration
+global/codex/cache/
 global/codex/history.jsonl
+global/codex/installation_id
 global/codex/log/
 global/codex/models_cache.json
 global/codex/sessions/
@@ -55,6 +60,7 @@ global/codex/tmp/
 global/codex/version.json
 global/codex/shell_snapshots/
 global/codex/.tmp/
+global/codex/logs_*.sqlite*
 
 # Gemini runtime data
 global/gemini/history/
@@ -63,6 +69,7 @@ global/gemini/state.json
 global/gemini/trustedFolders.json
 global/gemini/tmp/
 global/gemini/extensions/Stitch/gemini-extension.json
+global/gemini/installation_id
 
 # Agent-browser screenshots (generated output)
 skills/agent-browser/screenshots/*.png

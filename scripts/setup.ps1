@@ -29,10 +29,10 @@ try {
 
 if (-not $PythonCmd) {
     try {
-        $pyVer = python --version 2>$null
+        $pyVer = py -3 --version 2>$null
         if ($pyVer -match "Python 3") {
-            Write-Host " ($pyVer via 'python')" -ForegroundColor Green
-            $PythonCmd = "python"
+            Write-Host " ($pyVer via 'py -3')" -ForegroundColor Green
+            $PythonCmd = "py -3"
         }
     } catch {}
 }
@@ -78,15 +78,28 @@ if (-not $PythonCmd) {
         }
     }
 
-    # Refresh PATH in current session so python3/python is found immediately
+    # Refresh PATH in current session so python3/py launcher is found immediately
     $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" +
                 [System.Environment]::GetEnvironmentVariable("PATH", "User")
 
     # Verify install succeeded
-    $pyVer = python --version 2>$null
-    if ($pyVer -match "Python 3") {
+    $pyVer = $null
+    try {
+        $pyVer = python3 --version 2>$null
+        if ($pyVer -match "Python 3") {
+            $PythonCmd = "python3"
+        }
+    } catch {}
+    if (-not $PythonCmd) {
+        try {
+            $pyVer = py -3 --version 2>$null
+            if ($pyVer -match "Python 3") {
+                $PythonCmd = "py -3"
+            }
+        } catch {}
+    }
+    if ($PythonCmd) {
         Write-Host "    Installed: $pyVer" -ForegroundColor Green
-        $PythonCmd = "python"
     } else {
         Write-Host "  ERROR: Python 3 installed but not found on PATH." -ForegroundColor Red
         Write-Host "  Please open a new terminal and re-run setup." -ForegroundColor Yellow
@@ -247,6 +260,28 @@ try {
     Write-Host " installing..." -ForegroundColor Yellow
     irm https://claude.ai/install.ps1 | iex
     Write-Host "    Installed!" -ForegroundColor Green
+}
+
+# Claude Code - Warp plugin (warpdotdev/claude-code-warp)
+# Plugin state lives in ~/.claude/plugins which is gitignored runtime data
+# (not carried by the global symlink), so it must be installed here.
+Write-Host "  - Warp plugin for Claude Code..." -NoNewline
+if (Get-Command claude -ErrorAction SilentlyContinue) {
+    $pluginList = claude plugin list 2>$null
+    if ($pluginList -match "warp@claude-code-warp") {
+        Write-Host " (already installed)" -ForegroundColor Green
+    } else {
+        Write-Host " installing..." -ForegroundColor Yellow
+        claude plugin marketplace add warpdotdev/claude-code-warp 2>$null
+        claude plugin install warp@claude-code-warp -s user 2>$null
+        if ((claude plugin list 2>$null) -match "warp@claude-code-warp") {
+            Write-Host "    Installed: warp@claude-code-warp" -ForegroundColor Green
+        } else {
+            Write-Host "  WARNING: Failed to install Warp plugin - run manually: claude plugin install warp@claude-code-warp" -ForegroundColor Yellow
+        }
+    }
+} else {
+    Write-Host " (skipped - claude not on PATH)" -ForegroundColor Yellow
 }
 
 # Gemini CLI

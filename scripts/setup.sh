@@ -63,10 +63,6 @@ if command -v python3 &> /dev/null; then
     PYTHON_VER=$(python3 --version 2>&1)
     echo " ($PYTHON_VER)"
     PYTHON_CMD="python3"
-elif command -v python &> /dev/null && python --version 2>&1 | grep -q "Python 3"; then
-    PYTHON_VER=$(python --version 2>&1)
-    echo " ($PYTHON_VER via 'python')"
-    PYTHON_CMD="python"
 else
     echo " not found — attempting auto-install..."
     INSTALLED=false
@@ -282,6 +278,24 @@ else
         echo "  Then re-run setup."
         exit 1
     fi
+fi
+
+# Claude Code — Warp plugin (warpdotdev/claude-code-warp)
+# Plugin state lives in ~/.claude/plugins which is gitignored runtime data
+# (not carried by the global symlink), so it must be installed here.
+echo -n "  - Warp plugin for Claude Code..."
+if command -v claude &> /dev/null; then
+    if claude plugin list 2>/dev/null | grep -q "warp@claude-code-warp"; then
+        echo " (already installed)"
+    else
+        echo " installing..."
+        claude plugin marketplace add warpdotdev/claude-code-warp 2>/dev/null && \
+            claude plugin install warp@claude-code-warp -s user 2>/dev/null && \
+            echo "    Installed: warp@claude-code-warp" || \
+            echo "  WARNING: Failed to install Warp plugin — run manually: claude plugin install warp@claude-code-warp"
+    fi
+else
+    echo " (skipped — claude not on PATH)"
 fi
 
 # Gemini CLI

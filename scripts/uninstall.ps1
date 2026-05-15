@@ -109,6 +109,14 @@ if (Get-Command claude -ErrorAction SilentlyContinue) {
     } catch {
         Write-Host "  Skipped: stitch not found in Claude Code" -ForegroundColor Yellow
     }
+
+    if ((claude plugin list 2>$null) -match "warp@claude-code-warp") {
+        claude plugin uninstall warp@claude-code-warp 2>$null
+        claude plugin marketplace remove claude-code-warp 2>$null
+        Write-Host "  Removed Warp plugin + claude-code-warp marketplace" -ForegroundColor Green
+    } else {
+        Write-Host "  Skipped: Warp plugin not found in Claude Code" -ForegroundColor Yellow
+    }
 } else {
     Write-Host "  Skipped: claude not installed" -ForegroundColor Yellow
 }

@@ -47,7 +47,7 @@ allow_list = [
     "node",
     "git",
     "gh",
-    "python",
+    "python3",
     "pip"
 ]
 # Explicitly block high-risk commands to override any accidental broad access

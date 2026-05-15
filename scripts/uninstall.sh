@@ -108,6 +108,16 @@ if command -v claude &> /dev/null; then
     claude mcp remove stitch -s user 2>/dev/null && \
         echo "  Removed stitch from Claude Code (user scope)" || \
         echo "  Skipped: stitch not found in Claude Code"
+
+    if claude plugin list 2>/dev/null | grep -q "warp@claude-code-warp"; then
+        claude plugin uninstall warp@claude-code-warp 2>/dev/null && \
+            echo "  Removed Warp plugin from Claude Code" || \
+            echo "  Skipped: failed to remove Warp plugin"
+        claude plugin marketplace remove claude-code-warp 2>/dev/null && \
+            echo "  Removed claude-code-warp marketplace" || true
+    else
+        echo "  Skipped: Warp plugin not found in Claude Code"
+    fi
 else
     echo "  Skipped: claude not installed"
 fi

@@ -76,7 +76,7 @@ priority = 100
 [[rule]]
 name = "Allow Dev Runtimes and Package Managers"
 toolName = "run_shell_command"
-commandPrefix = ["npm ", "yarn ", "node ", "git ", "python ", "pip ", "npx ", "pnpm ", "bun "]
+commandPrefix = ["npm ", "yarn ", "node ", "git ", "python3 ", "pip ", "npx ", "pnpm ", "bun "]
 decision = "allow"
 priority = 100
 

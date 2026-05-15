@@ -61,7 +61,7 @@
       "Bash(yarn:*)",
       "Bash(node:*)",
       "Bash(git:*)",
-      "Bash(python:*)",
+      "Bash(python3:*)",
       "Bash(pip:*)",
       "Read(**/*.json)",
       "Read(**/*.js)",
@@ -93,10 +93,19 @@
   ],
   "statusLine": {
     "type": "command",
-    "command": "bash -c 'python3 \"$HOME/.claude/scripts/context-monitor.py\" 2>/dev/null || python \"$HOME/.claude/scripts/context-monitor.py\"'"
+    "command": "bash -c 'python3 \"$HOME/.claude/scripts/context-monitor.py\"'"
   },
   "enabledPlugins": {
-    "pg@aiguide": true
+    "pg@aiguide": true,
+    "warp@claude-code-warp": true
+  },
+  "extraKnownMarketplaces": {
+    "claude-code-warp": {
+      "source": {
+        "source": "github",
+        "repo": "warpdotdev/claude-code-warp"
+      }
+    }
   },
   "effortLevel": "xhigh",
   "skipDangerousModePermissionPrompt": true,

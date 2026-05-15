@@ -24,7 +24,7 @@ code .env
 
 The setup script will:
 1. Auto-install Python 3 if not found (via Homebrew/apt/dnf/winget/direct download)
-2. Install/update CLI tools (Claude Code, Gemini CLI, OpenCode, Codex CLI, agent-browser)
+2. Install/update CLI tools (Claude Code, Gemini CLI, OpenCode, Codex CLI, agent-browser) and the Warp plugin for Claude Code (`warpdotdev/claude-code-warp`)
 3. Smart symlinks for `~/.claude`, `~/.gemini`, `~/.opencode`, `~/.codex`:
    - **New machine** (dir doesn't exist): full symlink → `repo/global/<tool>/`
    - **Existing machine** (real dir exists): symlink only `<dir>/skills` → `repo/skills/`, leaving all other config untouched
@@ -45,7 +45,7 @@ The setup script will:
 .\scripts\uninstall.ps1 -Force
 ```
 
-The uninstall script reverses everything setup did: removes symlinks (restoring any `.backup` files), deletes generated configs (`~/.mcp.json`, `config.toml`), removes MCP servers, uninstalls CLI tools, and cleans up the screenshots directory. Local project folders (`.claude/`, `ralph/`, etc.) are only removed if you confirm a separate prompt.
+The uninstall script reverses everything setup did: removes symlinks (restoring any `.backup` files), deletes generated configs (`~/.mcp.json`, `config.toml`), removes MCP servers, removes the Warp plugin + marketplace, uninstalls CLI tools, and cleans up the screenshots directory. Local project folders (`.claude/`, `ralph/`, etc.) are only removed if you confirm a separate prompt.
 
 ### Making Scripts Executable
 

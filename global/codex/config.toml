@@ -11,6 +11,7 @@ personality = "pragmatic"
 
 [tui]
 notification_condition = "always"
+status_line = ["model-with-reasoning", "context-used"]
 
 # MCP Servers - Global (always available)
 # ------------------------------------------------------------------------------

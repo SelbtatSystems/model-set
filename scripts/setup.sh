@@ -21,10 +21,12 @@ ensure_path_entry() {
 }
 
 persist_user_local_bin_path() {
-    local local_bin="$HOME/.local/bin"
-    local shell_name rc_file path_line
+    persist_path_entry "$HOME/.local/bin"
+}
 
-    [ -d "$local_bin" ] || return 0
+persist_path_entry() {
+    local entry="$1"
+    local shell_name rc_file path_line rc_entry
 
     shell_name="$(basename "${SHELL:-bash}")"
     case "$shell_name" in
@@ -34,17 +36,117 @@ persist_user_local_bin_path() {
     esac
 
     if [ -z "$rc_file" ]; then
-        echo "    Note: add $local_bin to your shell PATH manually."
+        echo "    Note: add $entry to your shell PATH manually."
         return 0
     fi
 
-    path_line='export PATH="$HOME/.local/bin:$PATH"'
+    rc_entry="$entry"
+    local home_prefix="$HOME/"
+    if [[ "$entry" == "$home_prefix"* ]]; then
+        rc_entry="\$HOME/${entry#"$home_prefix"}"
+    fi
+
+    path_line="export PATH=\"$rc_entry:\$PATH\""
     if [ -f "$rc_file" ] && grep -Fqx "$path_line" "$rc_file"; then
         return 0
     fi
 
     printf '\n%s\n' "$path_line" >> "$rc_file"
-    echo "    Added ~/.local/bin to PATH in $rc_file"
+    echo "    Added $entry to PATH in $rc_file"
+}
+
+ensure_npm_global_prefix() {
+    local prefix parent bin
+
+    prefix="$(npm prefix -g 2>/dev/null || true)"
+    if [ -z "$prefix" ]; then
+        prefix="$HOME/.npm-global"
+        npm config set prefix "$prefix" >/dev/null
+    fi
+
+    if [ -d "$prefix" ]; then
+        if [ ! -w "$prefix" ]; then
+            prefix="$HOME/.npm-global"
+            mkdir -p "$prefix"
+            npm config set prefix "$prefix" >/dev/null
+            echo "    Using user npm prefix: $prefix"
+        fi
+    else
+        parent="$(dirname "$prefix")"
+        if [ ! -w "$parent" ]; then
+            prefix="$HOME/.npm-global"
+            mkdir -p "$prefix"
+            npm config set prefix "$prefix" >/dev/null
+            echo "    Using user npm prefix: $prefix"
+        fi
+    fi
+
+    bin="$(npm prefix -g 2>/dev/null)/bin"
+    mkdir -p "$bin"
+    ensure_path_entry "$bin"
+    persist_path_entry "$bin"
+}
+
+configure_agent_browser_no_sandbox() {
+    local config_dir="$HOME_DIR/.agent-browser"
+    local config_file="$config_dir/config.json"
+    local tmp_file
+
+    mkdir -p "$config_dir"
+
+    if [ -f "$config_file" ]; then
+        tmp_file="$(mktemp)"
+        if jq '
+            .args =
+              if (.args == null or .args == "") then
+                "--no-sandbox"
+              elif ((.args | type) == "array") then
+                ((.args + ["--no-sandbox"]) | unique)
+              elif ((.args | type) == "string" and (.args | contains("--no-sandbox"))) then
+                .args
+              else
+                (.args + ",--no-sandbox")
+              end
+        ' "$config_file" > "$tmp_file"; then
+            mv "$tmp_file" "$config_file"
+        else
+            rm -f "$tmp_file"
+            echo '{ "args": "--no-sandbox" }' > "$config_file"
+        fi
+    else
+        echo '{ "args": "--no-sandbox" }' > "$config_file"
+    fi
+}
+
+run_agent_browser_doctor() {
+    local doctor_log
+
+    doctor_log="$(mktemp)"
+    if agent-browser doctor >"$doctor_log" 2>&1; then
+        rm -f "$doctor_log"
+        echo " passed"
+        return 0
+    fi
+
+    if grep -q "No usable sandbox" "$doctor_log"; then
+        echo " needs --no-sandbox"
+        echo "    Configuring ~/.agent-browser/config.json with --no-sandbox"
+        configure_agent_browser_no_sandbox
+        agent-browser close >/dev/null 2>&1 || true
+
+        if agent-browser doctor --offline --quick >"$doctor_log" 2>&1 && \
+            agent-browser open about:blank >>"$doctor_log" 2>&1 && \
+            agent-browser close >>"$doctor_log" 2>&1; then
+            rm -f "$doctor_log"
+            echo "    Quick doctor and launch smoke passed after --no-sandbox config"
+            return 0
+        fi
+    fi
+
+    echo " failed"
+    cat "$doctor_log"
+    rm -f "$doctor_log"
+    return 1
 }
 
 echo "model-set Setup"
@@ -280,6 +382,43 @@ else
     fi
 fi
 
+# Node.js/npm (required for npm-installed CLIs and npx skills)
+echo -n "  - Node.js/npm..."
+if command -v node &> /dev/null && command -v npm &> /dev/null; then
+    echo " ($(node --version 2>/dev/null), npm $(npm --version 2>/dev/null))"
+else
+    echo " not found — attempting auto-install..."
+    INSTALLED=false
+
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        if command -v brew &> /dev/null; then
+            brew install node && INSTALLED=true
+        else
+            echo "    Homebrew not found — installing Homebrew first..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && \
+                brew install node && INSTALLED=true
+        fi
+    elif command -v apt-get &> /dev/null; then
+        sudo apt-get update -qq && sudo apt-get install -y nodejs npm && INSTALLED=true
+    elif command -v dnf &> /dev/null; then
+        sudo dnf install -y nodejs npm && INSTALLED=true
+    elif command -v yum &> /dev/null; then
+        sudo yum install -y nodejs npm && INSTALLED=true
+    elif command -v pacman &> /dev/null; then
+        sudo pacman -S --noconfirm nodejs npm && INSTALLED=true
+    elif command -v zypper &> /dev/null; then
+        sudo zypper install -y nodejs npm && INSTALLED=true
+    fi
+
+    if $INSTALLED && command -v node &> /dev/null && command -v npm &> /dev/null; then
+        echo "    Installed: $(node --version 2>/dev/null), npm $(npm --version 2>/dev/null)"
+    else
+        echo "  ERROR: Could not install Node.js/npm. Install Node.js LTS manually and re-run setup."
+        exit 1
+    fi
+fi
+ensure_npm_global_prefix
+
 # Claude Code — Warp plugin (warpdotdev/claude-code-warp)
 # Plugin state lives in ~/.claude/plugins which is gitignored runtime data
 # (not carried by the global symlink), so it must be installed here.
@@ -325,20 +464,45 @@ fi
 # agent-browser
 echo -n "  - agent-browser..."
 if command -v agent-browser &> /dev/null; then
-    echo " (already installed)"
+    CURRENT_AB="$(agent-browser --version 2>/dev/null || echo 'unknown')"
+    echo " updating ($CURRENT_AB)..."
+    agent-browser upgrade >/dev/null 2>&1 || npm install -g agent-browser@latest
 else
     echo " installing..."
-    npm install -g agent-browser
+    npm install -g agent-browser@latest
+fi
+hash -r 2>/dev/null || true
+if ! command -v agent-browser &> /dev/null; then
+    echo "  ERROR: agent-browser installed but is not on PATH."
+    echo "  Run: export PATH=\"$(npm prefix -g 2>/dev/null)/bin:\$PATH\""
+    echo "  Then re-run setup."
+    exit 1
+fi
+echo "    Installed: $(agent-browser --version 2>/dev/null || echo 'unknown')"
+
+# Browser binary and system dependencies
+echo "  - agent-browser browser..."
+if [[ "$OSTYPE" == "linux"* ]]; then
+    agent-browser install --with-deps
+else
     agent-browser install
-    echo "    Installed!"
+fi
+echo "    Browser install complete"
+
+# Validate the install before continuing
+echo -n "  - agent-browser doctor..."
+if ! run_agent_browser_doctor; then
+    echo "  ERROR: agent-browser doctor failed. Re-run with: agent-browser doctor"
+    exit 1
 fi
 
-# agent-browser system dependencies (Chromium needs libnspr4, libnss3, etc.)
-echo -n "  - agent-browser system deps..."
-if npx playwright install-deps chromium 2>/dev/null; then
-    echo " installed"
+# Keep the upstream discovery skill synced for agents that read .agents/skills.
+echo "  - agent-browser skill..."
+if (cd "$REPO_DIR" && npx -y skills add vercel-labs/agent-browser >/dev/null); then
+    echo "    Skill synced from vercel-labs/agent-browser"
 else
-    echo " (skipped — may need sudo)"
+    echo "  ERROR: Failed to sync agent-browser skill via npx skills add vercel-labs/agent-browser"
+    exit 1
 fi
 
 # Ensure screenshots directory exists

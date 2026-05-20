@@ -43,7 +43,7 @@ agent-browser snapshot -i          # Interactive elements w/ refs
 agent-browser click @e1            # Click by ref
 agent-browser fill @e2 "text"      # Fill input
 agent-browser screenshot ./path    # Capture
-agent-browser wait --network       # Wait for API calls
+agent-browser wait --load networkidle  # Wait for API calls
 agent-browser close                # Done
 ```
 

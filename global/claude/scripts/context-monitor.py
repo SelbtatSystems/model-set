@@ -8,7 +8,6 @@ import json
 import sys
 import os
 import re
-import subprocess
 import unicodedata
 
 # Force UTF-8 output on Windows (cp1252 can't handle emoji)
@@ -17,6 +16,10 @@ if sys.stdout.encoding != "utf-8":
 
 # ANSI escape pattern for stripping from width calculations
 ANSI_RE = re.compile(r"\033\[[^m]*m")
+MODEL_COLOR = "\033[38;2;246;226;183m"
+USAGE_COLOR = "\033[38;2;226;170;135m"
+DIM_COLOR = "\033[90m"
+RESET = "\033[0m"
 
 
 def char_width(ch):
@@ -57,65 +60,26 @@ def truncate_to_width(s, max_width):
     return s[:i] + "\033[0m"
 
 
-def get_git_status():
-    """Get git branch with staged/modified/untracked counts."""
-    GREEN = "\033[32m"
-    YELLOW = "\033[33m"
-    RED = "\033[31m"
-    RESET = "\033[0m"
-
-    try:
-        subprocess.check_output(
-            ["git", "rev-parse", "--git-dir"],
-            stderr=subprocess.DEVNULL, timeout=2
-        )
-        branch = subprocess.check_output(
-            ["git", "branch", "--show-current"],
-            text=True, stderr=subprocess.DEVNULL, timeout=2
-        ).strip()
-
-        if not branch:
-            return ""
-
-        # Single command: staged, modified, and untracked in one call
-        porcelain = subprocess.check_output(
-            ["git", "status", "--porcelain"],
-            text=True, stderr=subprocess.DEVNULL, timeout=2
-        ).strip()
-
-        staged = 0
-        modified = 0
-        untracked = 0
-        for entry in porcelain.splitlines() if porcelain else []:
-            index, worktree = entry[0], entry[1]
-            if entry[:2] == "??":
-                untracked += 1
-            else:
-                if index in "MADRC":
-                    staged += 1
-                if worktree in "MD":
-                    modified += 1
-
-        git_info = f"{GREEN}+{staged} staged{RESET}" if staged else ""
-        git_info += f" {YELLOW}~{modified} mod{RESET}" if modified else ""
-        git_info += f" {RED}?{untracked} new{RESET}" if untracked else ""
-        git_info = git_info.lstrip()
-
-        suffix = f" {git_info}" if git_info else ""
-
-        return f" \033[90m·\033[0m  {branch}{suffix}"
-
-    except Exception:
-        return ""
-
-
 # Context window sizes by model keyword (tokens)
 MODEL_CONTEXT_WINDOWS = {
-    "opus": 1_000_000,
-    "sonnet": 1_000_000,
+    "opus": 250_000,
+    "sonnet": 250_000,
     "haiku": 200_000,
 }
-DEFAULT_CONTEXT_WINDOW = 1_000_000
+DEFAULT_CONTEXT_WINDOW = 250_000
+
+CONTEXT_WINDOW_KEYS = {
+    "context_window",
+    "contextwindow",
+    "contextwindowtokens",
+    "context_window_tokens",
+    "context_window_size",
+    "contextwindowsize",
+    "max_context_tokens",
+    "maxcontexttokens",
+    "max_context_window",
+    "maxcontextwindow",
+}
 
 
 def get_context_window(model_name):
@@ -127,12 +91,87 @@ def get_context_window(model_name):
     return DEFAULT_CONTEXT_WINDOW
 
 
-def parse_context_from_transcript(transcript_path, model_name=""):
+def normalize_token_count(value):
+    """Normalize token count values from JSON into positive integers."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value > 0:
+        return value
+    if isinstance(value, float) and value > 0:
+        return int(value)
+    if isinstance(value, str):
+        text = value.strip().lower().replace(",", "").replace("_", "")
+        multiplier = 1
+        if text.endswith("k"):
+            multiplier = 1_000
+            text = text[:-1]
+        elif text.endswith("m"):
+            multiplier = 1_000_000
+            text = text[:-1]
+        try:
+            parsed = float(text)
+        except ValueError:
+            return None
+        if parsed > 0:
+            return int(parsed * multiplier)
+    return None
+
+
+def find_context_window(data):
+    """Find a context-window token count in nested status/transcript data."""
+    if isinstance(data, dict):
+        for key, value in data.items():
+            normalized_key = key.lower().replace("-", "_")
+            compact_key = normalized_key.replace("_", "")
+            if normalized_key in CONTEXT_WINDOW_KEYS or compact_key in CONTEXT_WINDOW_KEYS:
+                tokens = normalize_token_count(value)
+                if tokens:
+                    return tokens
+            found = find_context_window(value)
+            if found:
+                return found
+    elif isinstance(data, list):
+        for item in data:
+            found = find_context_window(item)
+            if found:
+                return found
+    return None
+
+
+def get_status_model_name(data, fallback):
+    """Get the most specific model identifier exposed in status input."""
+    model = data.get("model", {})
+    if isinstance(model, dict):
+        for key in ("id", "name", "model", "display_name"):
+            value = model.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+    return fallback
+
+
+def format_tokens_compact(tokens):
+    """Format token counts as compact uppercase values."""
+    if tokens >= 1_000_000:
+        value = tokens / 1_000_000
+        if value.is_integer():
+            return f"{int(value)}M"
+        return f"{value:.1f}".rstrip("0").rstrip(".") + "M"
+    if tokens >= 1_000:
+        return f"{round(tokens / 1_000):.0f}K"
+    return str(tokens)
+
+
+def parse_context_from_transcript(
+    transcript_path,
+    model_name="",
+    context_window=None,
+    context_window_locked=False,
+):
     """Parse context usage from transcript file."""
     if not transcript_path or not os.path.exists(transcript_path):
         return None
 
-    context_window = get_context_window(model_name)
+    context_window = context_window or get_context_window(model_name)
 
     try:
         # Read tail of transcript; tool_result lines can be 10-50KB each,
@@ -153,10 +192,22 @@ def parse_context_from_transcript(transcript_path, model_name=""):
         for line in reversed(recent_lines):
             try:
                 data = json.loads(line.strip())
+                line_context_window = find_context_window(data)
+                if line_context_window:
+                    context_window = line_context_window
+                    context_window_locked = True
+
+                message = data.get("message", {})
+                line_model_name = message.get("model") if isinstance(message, dict) else ""
+                if (
+                    isinstance(line_model_name, str)
+                    and line_model_name.strip()
+                    and not context_window_locked
+                ):
+                    context_window = get_context_window(line_model_name)
 
                 # Method 1: Parse usage tokens from assistant messages
                 if data.get("type") == "assistant":
-                    message = data.get("message", {})
                     usage = message.get("usage", {})
 
                     if usage:
@@ -170,6 +221,7 @@ def parse_context_from_transcript(transcript_path, model_name=""):
                             return {
                                 "percent": percent_used,
                                 "tokens": total_tokens,
+                                "context_window": context_window,
                                 "method": "usage",
                             }
 
@@ -184,6 +236,8 @@ def parse_context_from_transcript(transcript_path, model_name=""):
                         percent_left = int(match.group(1))
                         return {
                             "percent": 100 - percent_left,
+                            "tokens": int(context_window * (100 - percent_left) / 100),
+                            "context_window": context_window,
                             "warning": "auto-compact",
                             "method": "system",
                         }
@@ -193,6 +247,8 @@ def parse_context_from_transcript(transcript_path, model_name=""):
                         percent_left = int(match.group(1))
                         return {
                             "percent": 100 - percent_left,
+                            "tokens": int(context_window * (100 - percent_left) / 100),
+                            "context_window": context_window,
                             "warning": "low",
                             "method": "system",
                         }
@@ -207,28 +263,15 @@ def parse_context_from_transcript(transcript_path, model_name=""):
 
 
 def get_context_display(context_info):
-    """Generate context display with dash-based progress bar."""
+    """Generate context display as used/window - percent."""
     if not context_info:
-        return "\033[90m" + "░" * 10 + "\033[0m 0%"
+        context_window = DEFAULT_CONTEXT_WINDOW
+        return f"0/{format_tokens_compact(context_window)} - 0%"
 
     percent = context_info.get("percent", 0)
     warning = context_info.get("warning")
-
-    # 10 segments, each represents 10% of context
-    total = 10
-    filled = int((percent / 100) * total)
-
-    # Color for filled segments based on usage level
-    if percent >= 80:
-        fill_color = "\033[31m"  # Red
-    elif percent >= 55:
-        fill_color = "\033[33m"  # Orange/yellow
-    else:
-        fill_color = "\033[32m"  # Green
-
-    reset = "\033[0m"
-
-    bar = f"{fill_color}" + "▓" * filled + f"{reset}\033[90m" + "░" * (total - filled) + f"{reset}"
+    tokens = context_info.get("tokens", 0)
+    context_window = context_info.get("context_window", DEFAULT_CONTEXT_WINDOW)
 
     # Alert text for critical states
     alert = ""
@@ -241,26 +284,125 @@ def get_context_display(context_info):
     elif percent >= 90:
         alert = " HIGH"
 
-    return f"{bar} {percent:.0f}%{alert}"
+    return (
+        f"{format_tokens_compact(tokens)}/{format_tokens_compact(context_window)}"
+        f" - {percent:.0f}%{alert}"
+    )
 
 
-def get_directory_display(workspace_data):
-    """Get directory display name."""
-    current_dir = workspace_data.get("current_dir", "").replace("\\", "/")
-    project_dir = workspace_data.get("project_dir", "").replace("\\", "/")
+def nested_get(data, path):
+    """Read a nested dictionary path."""
+    value = data
+    for key in path:
+        if not isinstance(value, dict) or key not in value:
+            return None
+        value = value[key]
+    return value
 
-    if current_dir and project_dir:
-        if current_dir.startswith(project_dir):
-            rel_path = current_dir[len(project_dir) :].lstrip("/")
-            return rel_path or os.path.basename(project_dir)
-        else:
-            return os.path.basename(current_dir)
-    elif project_dir:
-        return os.path.basename(project_dir)
-    elif current_dir:
-        return os.path.basename(current_dir)
-    else:
-        return "unknown"
+
+def normalize_thinking_label(value):
+    """Normalize thinking/reasoning mode values into a compact label."""
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        for key in ("effortLevel", "reasoning_effort", "effort", "level", "mode"):
+            label = normalize_thinking_label(value.get(key))
+            if label:
+                return label
+        if value.get("enabled") is False:
+            return "no-think"
+        return ""
+    if isinstance(value, bool):
+        return "think" if value else "no-think"
+
+    label = str(value).strip()
+    if not label:
+        return ""
+
+    normalized = label.lower().replace("_", "-")
+    if normalized in ("true", "on", "yes", "enabled", "enable"):
+        return "think"
+    if normalized in ("false", "off", "no", "disabled", "disable", "none"):
+        return "no-think"
+    return normalized
+
+
+def get_persistent_effort_level():
+    """Read Claude's configured effort level from settings.json."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    settings_paths = [
+        os.path.join(os.path.dirname(script_dir), "settings.json"),
+        os.path.expanduser("~/.claude/settings.json"),
+    ]
+
+    seen = set()
+    for path in settings_paths:
+        if path in seen:
+            continue
+        seen.add(path)
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                settings = json.load(f)
+        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+            continue
+
+        for key in ("effortLevel", "reasoning_effort", "effort"):
+            label = normalize_thinking_label(settings.get(key))
+            if label:
+                return label
+
+    return ""
+
+
+def get_thinking_display(data):
+    """Get a compact thinking/reasoning label when Claude exposes one."""
+    explicit_effort_paths = [
+        # Claude Code passes the live effort here (verified payload, v2.1.142).
+        # Must take priority so /model changes reflect without restart.
+        ("effort", "level"),
+        ("model", "reasoning_effort"),
+        ("model", "effortLevel"),
+        ("reasoning_effort",),
+        ("effortLevel",),
+        ("settings", "reasoning_effort"),
+        ("settings", "effortLevel"),
+    ]
+
+    for path in explicit_effort_paths:
+        label = normalize_thinking_label(nested_get(data, path))
+        if label:
+            return label
+
+    for env_name in ("CLAUDE_CODE_THINKING_STATUS", "CLAUDE_THINKING_STATUS"):
+        label = normalize_thinking_label(os.environ.get(env_name))
+        if label:
+            return label
+
+    label = get_persistent_effort_level()
+    if label:
+        return label
+
+    generic_thinking_paths = [
+        ("model", "thinking"),
+        ("model", "thinking_mode"),
+        ("thinking",),
+        ("thinking_mode",),
+        ("settings", "thinking"),
+        ("settings", "thinking_mode"),
+    ]
+
+    for path in generic_thinking_paths:
+        label = normalize_thinking_label(nested_get(data, path))
+        if label:
+            return label
+
+    return ""
+
+
+def clean_model_display_name(model_name):
+    """Remove Claude's redundant context-window suffix from model display."""
+    return re.sub(r"\s*\([^)]*context[^)]*\)", "", model_name, flags=re.IGNORECASE).strip()
 
 
 def main():
@@ -270,24 +412,37 @@ def main():
 
         # Extract information
         model_name = data.get("model", {}).get("display_name", "Claude")
-        workspace = data.get("workspace", {})
+        model_name = clean_model_display_name(model_name)
         transcript_path = data.get("transcript_path", "")
+        status_model_name = get_status_model_name(data, model_name)
+        status_context_window = find_context_window(data)
+        context_window = status_context_window or get_context_window(status_model_name)
 
         # Parse context usage
-        context_info = parse_context_from_transcript(transcript_path, model_name)
+        context_info = parse_context_from_transcript(
+            transcript_path,
+            status_model_name,
+            context_window,
+            status_context_window is not None,
+        )
+        if not context_info:
+            context_info = {
+                "percent": 0,
+                "tokens": 0,
+                "context_window": context_window,
+                "method": "fallback",
+            }
 
         # Build status components
         context_display = get_context_display(context_info)
-        directory = get_directory_display(workspace)
-        git_status = get_git_status()
+        thinking_display = get_thinking_display(data)
+        model_display = f"{model_name} {thinking_display}".strip()
 
         # Combine all components
         status_line = (
-            f"{model_name} "
-            f"\033[90m·\033[0m {context_display} "
-            f"\033[90m·\033[0m "
-            f"  {directory}"
-            f"{git_status}"
+            f"{MODEL_COLOR}{model_display}{RESET} "
+            f"{DIM_COLOR}·{RESET} "
+            f"{USAGE_COLOR}{context_display}{RESET}"
         )
 
         # Get terminal width; stderr may still be a TTY when stdin/stdout are pipes

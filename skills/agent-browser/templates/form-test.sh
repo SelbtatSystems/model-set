@@ -10,7 +10,7 @@ echo "Testing form at: $URL"
 
 # Open form page
 agent-browser open "$URL"
-agent-browser wait --network
+agent-browser wait --load networkidle
 
 # Get form structure
 echo "=== Form Elements ==="
@@ -24,11 +24,11 @@ agent-browser snapshot -i
 
 # Submit form
 # agent-browser click @submit-button
-# agent-browser wait --network
+# agent-browser wait --load networkidle
 
 # Verify result
 echo "=== Result Page ==="
 agent-browser snapshot -i
-agent-browser screenshot ~/model-set/agent-browser/screenshots/form-result.png
+agent-browser screenshot ~/model-set/skills/agent-browser/screenshots/form-result.png
 
 agent-browser close

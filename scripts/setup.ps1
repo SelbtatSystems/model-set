@@ -7,6 +7,115 @@ $RepoDir = Split-Path -Parent $ScriptDir
 $HomeDir = $env:USERPROFILE
 $CurrentDir = Get-Location
 
+function Refresh-SessionPath {
+    $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" +
+                [System.Environment]::GetEnvironmentVariable("PATH", "User")
+}
+
+function Ensure-PathEntry {
+    param ([string]$Entry)
+
+    if (-not $Entry -or -not (Test-Path $Entry)) {
+        return
+    }
+
+    $paths = $env:PATH -split ";"
+    if ($paths -notcontains $Entry) {
+        $env:PATH = "$Entry;$env:PATH"
+    }
+
+    $userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
+    $userPaths = @()
+    if ($userPath) {
+        $userPaths = $userPath -split ";"
+    }
+    if ($userPaths -notcontains $Entry) {
+        $newUserPath = if ($userPath) { "$Entry;$userPath" } else { $Entry }
+        [System.Environment]::SetEnvironmentVariable("PATH", $newUserPath, "User")
+        Write-Host "    Added $Entry to user PATH" -ForegroundColor Green
+    }
+}
+
+function Ensure-NpmGlobalPath {
+    try {
+        $npmPrefix = npm prefix -g 2>$null
+        if ($npmPrefix) {
+            Ensure-PathEntry -Entry $npmPrefix
+        }
+    } catch {}
+}
+
+function Set-AgentBrowserNoSandbox {
+    $configDir = Join-Path $HomeDir ".agent-browser"
+    $configFile = Join-Path $configDir "config.json"
+
+    if (-not (Test-Path $configDir)) {
+        New-Item -ItemType Directory -Path $configDir -Force | Out-Null
+    }
+
+    $config = [ordered]@{}
+    if (Test-Path $configFile) {
+        try {
+            $existing = Get-Content $configFile -Raw | ConvertFrom-Json
+            foreach ($property in $existing.PSObject.Properties) {
+                $config[$property.Name] = $property.Value
+            }
+        } catch {
+            $config = [ordered]@{}
+        }
+    }
+
+    if (-not $config.Contains("args") -or -not $config["args"]) {
+        $config["args"] = "--no-sandbox"
+    } elseif ($config["args"] -is [System.Array]) {
+        if ($config["args"] -notcontains "--no-sandbox") {
+            $config["args"] = @($config["args"] + "--no-sandbox")
+        }
+    } else {
+        $argsText = [string]$config["args"]
+        if ($argsText -notmatch "(^|,|\s)--no-sandbox(,|\s|$)") {
+            $config["args"] = "$argsText,--no-sandbox"
+        }
+    }
+
+    $config | ConvertTo-Json -Depth 10 | Set-Content $configFile
+}
+
+function Test-AgentBrowserDoctor {
+    Write-Host "  - agent-browser doctor..." -NoNewline
+
+    $doctorOutput = agent-browser doctor 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host " passed" -ForegroundColor Green
+        return
+    }
+
+    $doctorText = $doctorOutput | Out-String
+    if ($doctorText -match "No usable sandbox") {
+        Write-Host " needs --no-sandbox" -ForegroundColor Yellow
+        Write-Host "    Configuring ~/.agent-browser/config.json with --no-sandbox" -ForegroundColor Yellow
+        Set-AgentBrowserNoSandbox
+        try { agent-browser close *> $null } catch {}
+
+        $quickDoctorOutput = agent-browser doctor --offline --quick 2>&1
+        $quickDoctorPassed = ($LASTEXITCODE -eq 0)
+        $openOutput = agent-browser open about:blank 2>&1
+        $openPassed = ($LASTEXITCODE -eq 0)
+        $closeOutput = agent-browser close 2>&1
+        $closePassed = ($LASTEXITCODE -eq 0)
+
+        if ($quickDoctorPassed -and $openPassed -and $closePassed) {
+            Write-Host "    Quick doctor and launch smoke passed after --no-sandbox config" -ForegroundColor Green
+            return
+        }
+        $doctorText = @($quickDoctorOutput, $openOutput, $closeOutput) | Out-String
+    }
+
+    Write-Host " failed" -ForegroundColor Red
+    Write-Host $doctorText
+    throw "agent-browser doctor failed. Re-run with: agent-browser doctor"
+}
+
 Write-Host "model-set Setup" -ForegroundColor Cyan
 Write-Host "===============" -ForegroundColor Cyan
 Write-Host ""
@@ -154,6 +263,67 @@ if (-not $jqFound) {
         Write-Host "  Install manually: https://jqlang.github.io/jq/download/" -ForegroundColor Yellow
     }
 }
+
+# Node.js/npm (required for npm-installed CLIs and npx skills)
+Write-Host "  - Node.js/npm..." -NoNewline
+$nodeReady = $false
+try {
+    $nodeVer = node --version 2>$null
+    $npmVer = npm --version 2>$null
+    if ($nodeVer -and $npmVer) {
+        Write-Host " ($nodeVer, npm $npmVer)" -ForegroundColor Green
+        $nodeReady = $true
+    }
+} catch {}
+
+if (-not $nodeReady) {
+    Write-Host " not found - attempting auto-install..." -ForegroundColor Yellow
+    $nodeInstalled = $false
+
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        try {
+            winget install OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements
+            $nodeInstalled = $true
+        } catch {
+            Write-Host "    winget install failed." -ForegroundColor Yellow
+        }
+    }
+
+    if (-not $nodeInstalled -and (Get-Command choco -ErrorAction SilentlyContinue)) {
+        try {
+            choco install nodejs-lts -y
+            $nodeInstalled = $true
+        } catch {
+            Write-Host "    choco install failed." -ForegroundColor Yellow
+        }
+    }
+
+    if (-not $nodeInstalled -and (Get-Command scoop -ErrorAction SilentlyContinue)) {
+        try {
+            scoop install nodejs-lts
+            $nodeInstalled = $true
+        } catch {
+            Write-Host "    scoop install failed." -ForegroundColor Yellow
+        }
+    }
+
+    Refresh-SessionPath
+
+    try {
+        $nodeVer = node --version 2>$null
+        $npmVer = npm --version 2>$null
+        if ($nodeVer -and $npmVer) {
+            Write-Host "    Installed: $nodeVer, npm $npmVer" -ForegroundColor Green
+            $nodeReady = $true
+        }
+    } catch {}
+
+    if (-not $nodeReady) {
+        Write-Host "  ERROR: Could not install Node.js/npm. Install Node.js LTS manually and re-run setup." -ForegroundColor Red
+        exit 1
+    }
+}
+Ensure-NpmGlobalPath
 
 Write-Host ""
 
@@ -308,23 +478,57 @@ try {
 
 # agent-browser
 Write-Host "  - agent-browser..." -NoNewline
-try {
+$agentBrowserCmd = Get-Command agent-browser -ErrorAction SilentlyContinue
+$upgradedAgentBrowser = $false
+if ($agentBrowserCmd) {
     $abVersion = agent-browser --version 2>$null
-    Write-Host " (already installed)" -ForegroundColor Green
-} catch {
-    Write-Host " installing..." -ForegroundColor Yellow
-    npm install -g agent-browser
-    agent-browser install
-    Write-Host "    Installed!" -ForegroundColor Green
+    Write-Host " updating ($abVersion)..." -ForegroundColor Yellow
+    try {
+        agent-browser upgrade *> $null
+        if ($LASTEXITCODE -eq 0) {
+            $upgradedAgentBrowser = $true
+        }
+    } catch {}
 }
 
-# agent-browser system dependencies (Chromium needs libnspr4, libnss3, etc.)
-Write-Host "  - agent-browser system deps..." -NoNewline
+if (-not $agentBrowserCmd) {
+    Write-Host " installing..." -ForegroundColor Yellow
+}
+
+if (-not $upgradedAgentBrowser) {
+    npm install -g agent-browser@latest
+    if ($LASTEXITCODE -ne 0) {
+        throw "npm install -g agent-browser@latest failed"
+    }
+}
+Refresh-SessionPath
+Ensure-NpmGlobalPath
+$abVersion = agent-browser --version 2>$null
+if (-not $abVersion) {
+    Write-Host "  ERROR: agent-browser installed but is not on PATH." -ForegroundColor Red
+    exit 1
+}
+Write-Host "    Installed: $abVersion" -ForegroundColor Green
+
+Write-Host "  - agent-browser browser..." -ForegroundColor Yellow
+agent-browser install
+if ($LASTEXITCODE -ne 0) {
+    throw "agent-browser install failed"
+}
+Write-Host "    Browser install complete" -ForegroundColor Green
+
+Test-AgentBrowserDoctor
+
+Write-Host "  - agent-browser skill..." -ForegroundColor Yellow
+Push-Location $RepoDir
 try {
-    npx playwright install-deps chromium 2>$null
-    Write-Host " installed" -ForegroundColor Green
-} catch {
-    Write-Host " (skipped - may need admin)" -ForegroundColor Yellow
+    npx -y skills add vercel-labs/agent-browser *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "npx skills add vercel-labs/agent-browser failed"
+    }
+    Write-Host "    Skill synced from vercel-labs/agent-browser" -ForegroundColor Green
+} finally {
+    Pop-Location
 }
 
 # Ensure screenshots directory exists

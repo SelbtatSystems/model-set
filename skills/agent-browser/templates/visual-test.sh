@@ -7,7 +7,7 @@ set -euo pipefail
 URL="${1:-http://localhost:3101}"
 NAME="${2:-test}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-SCREENSHOT_DIR="$HOME/model-set/agent-browser/screenshots"
+SCREENSHOT_DIR="$HOME/model-set/skills/agent-browser/screenshots"
 mkdir -p "$SCREENSHOT_DIR"
 
 echo "Testing: $URL"
@@ -16,7 +16,7 @@ echo "Testing: $URL"
 agent-browser open "$URL"
 
 # Wait for page load
-agent-browser wait --network
+agent-browser wait --load networkidle
 
 # Get page structure
 echo "=== Page Structure ==="
@@ -26,7 +26,7 @@ agent-browser snapshot -i
 agent-browser screenshot "${SCREENSHOT_DIR}/${NAME}_desktop_${TIMESTAMP}.png"
 
 # Optional: Mobile viewport
-# agent-browser resize 375 812
+# agent-browser set viewport 375 812
 # agent-browser screenshot "${SCREENSHOT_DIR}/${NAME}_mobile_${TIMESTAMP}.png"
 
 # Get page title for verification

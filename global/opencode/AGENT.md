@@ -22,14 +22,9 @@
 
 **REQUIRED after every frontend change.**
 
-### Installation
-```bash
-npm install -g agent-browser
-agent-browser install  # Download Chromium
-```
-
 ### Quick Workflow
 ```bash
+agent-browser skills get core      # Load current usage docs
 agent-browser open http://localhost:3000/path
 agent-browser snapshot -i          # Get interactive elements
 agent-browser screenshot ~/model-set/skills/agent-browser/screenshots/test.png
@@ -44,7 +39,7 @@ agent-browser snapshot -i          # Interactive elements w/ refs
 agent-browser click @e1            # Click by ref
 agent-browser fill @e2 "text"      # Fill input
 agent-browser screenshot ~/model-set/skills/agent-browser/screenshots/name.png  # Capture
-agent-browser wait --network       # Wait for API calls
+agent-browser wait --load networkidle  # Wait for API calls
 agent-browser close                # Done
 ```
 

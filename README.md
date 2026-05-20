@@ -23,8 +23,8 @@ code .env
 ```
 
 The setup script will:
-1. Auto-install Python 3 if not found (via Homebrew/apt/dnf/winget/direct download)
-2. Install/update CLI tools (Claude Code, Gemini CLI, OpenCode, Codex CLI, agent-browser) and the Warp plugin for Claude Code (`warpdotdev/claude-code-warp`)
+1. Auto-install Python 3 and Node.js/npm if not found (via supported package managers; Python also has a direct-download fallback on Windows)
+2. Install/update CLI tools (Claude Code, Gemini CLI, OpenCode, Codex CLI, agent-browser), install the agent-browser browser runtime, sync the upstream agent-browser skill, and install the Warp plugin for Claude Code (`warpdotdev/claude-code-warp`)
 3. Smart symlinks for `~/.claude`, `~/.gemini`, `~/.opencode`, `~/.codex`:
    - **New machine** (dir doesn't exist): full symlink → `repo/global/<tool>/`
    - **Existing machine** (real dir exists): symlink only `<dir>/skills` → `repo/skills/`, leaving all other config untouched
@@ -152,6 +152,7 @@ mkdir skills/your-skill
 Browser automation CLI for visual testing. Screenshots save to `skills/agent-browser/screenshots/`.
 
 ```bash
+agent-browser skills get core       # Load current usage docs for the installed CLI
 agent-browser open http://localhost:3000/path
 agent-browser snapshot -i          # Get interactive elements with refs
 agent-browser screenshot ~/model-set/skills/agent-browser/screenshots/test.png

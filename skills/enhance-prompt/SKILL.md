@@ -1,202 +1,160 @@
 ---
 name: enhance-prompt
-description: Transforms vague UI ideas into polished, Stitch-optimized prompts. Enhances specificity, adds UI/UX keywords, injects design system context, and structures output for better generation results.
-allowed-tools: Read Write
+description: Turn a rough UI idea, an existing page, or a reference screenshot into a precise, build-ready prompt for a coding agent to implement a page in this repo. Works with frontend-design (aesthetic direction), web-design-guidelines (quality floor), and DESIGN.md (project design language).
+allowed-tools: Read Write Grep Glob WebFetch Bash
 ---
 
-# Enhance Prompt for Stitch
+# Enhance Prompt — Frontend Build Prompt
 
-You are a **Stitch Prompt Engineer**. Your job is to transform rough or vague UI generation ideas into polished, optimized prompts that produce better results from Stitch.
+You are a **Frontend Build-Prompt Engineer**. Transform a rough UI idea — or an
+existing page, or a reference screenshot — into a precise, **build-ready prompt** that
+a coding agent uses to implement a real page **in this repo**. Your output is a
+*prompt*, not code.
 
-## Prerequisites
+## Works with
 
-Before enhancing prompts, consult the official Stitch documentation for the latest best practices:
+- **`frontend-design`** — aesthetic *direction*: distinctive palette/type/layout, a
+  signature element, no templated defaults. Lean on it for new pages; the output
+  prompt also tells the builder to apply it.
+- **`web-design-guidelines`** — the **quality floor** (semantic landmarks, visible
+  keyboard focus, AA contrast, reduced motion, responsive, ≥44px touch targets).
+  Bake these in as explicit constraints, and tell the builder to self-check against it.
+- **`design-md` / DESIGN.md** — the project's **design language**, the visual source
+  of truth. Resolve it before writing the prompt (see Step 2).
 
-- **Stitch Effective Prompting Guide**: https://stitch.withgoogle.com/docs/learn/prompting/
+## Modes — detect which one first
 
-This guide contains up-to-date recommendations that may supersede or complement the patterns in this skill.
+| Mode | Trigger | What you produce |
+|------|---------|------------------|
+| **1. New page** | User gives an idea/prompt and wants a brand-new page ("investigate the feature") | A grounded build prompt for a new page |
+| **2. Existing page** | User names an existing page / route / component | A prompt to rebuild or refine that page |
+| **3. Screenshot → our design** | User provides a screenshot of a reference page | A prompt to build that page **in our design language** |
 
-## When to Use This Skill
+## Pipeline
 
-Activate when a user wants to:
-- Polish a UI prompt before sending to Stitch
-- Improve a prompt that produced poor results
-- Add design system consistency to a simple idea
-- Structure a vague concept into an actionable prompt
+### Step 0 — Detect the mode
+Read the request: a fresh idea → Mode 1; a path/route/page name that already exists →
+Mode 2; an attached image → Mode 3. If genuinely ambiguous, ask one question.
 
-## Enhancement Pipeline
+### Step 1 — Investigate (mode-specific)
+- **Mode 1 (new):** Use `Grep`/`Glob`/`Read` to investigate the feature in the
+  codebase — its route, data shapes/types, related components, and domain vocabulary.
+  Ground the prompt in the feature's **real content**, never lorem (per `frontend-design`).
+- **Mode 2 (existing):** `Read` the page component(s) and the CSS classes they use.
+  Then use the **`agent-browser`** skill to screenshot it in light + dark, so you
+  capture how it actually looks today (`snapshot -i` before interacting; re-snapshot
+  after navigation). Note what to preserve vs. what to change.
+- **Mode 3 (screenshot):** `Read` the provided screenshot. Extract **structure only** —
+  layout regions, components, hierarchy, content blocks. Do **not** carry over its
+  colors/type/spacing; those come from DESIGN.md in Step 2.
 
-Follow these steps to enhance any prompt:
+### Step 2 — Resolve the design language (DESIGN.md)
+Look for **`llm-wiki/apps/<VaultName>/DESIGN.md`** (app↔vault map in the project
+`CLAUDE.md`, e.g. `agcore-web → AgCore-web`, `myfarmjob-web → MyFarmJob`).
+- **If present:** the enhanced prompt **must** target that design language — pull the
+  descriptive color names + hex, type scale, component prose, and icon conventions
+  into the DESIGN SYSTEM block. For Mode 3 this is the whole point: foreign layout,
+  our tokens.
+- **If absent:** derive aesthetic direction from the **`frontend-design`** skill
+  instead, and add a one-line tip that running **`design-md`** first yields a reusable
+  design language.
 
-### Step 1: Assess the Input
+### Step 3 — Bake in the quality floor
+Add explicit constraints from **`web-design-guidelines`**: semantic HTML + landmarks,
+visible keyboard focus, AA contrast, `prefers-reduced-motion` respected, responsive
+down to mobile, touch targets ≥ 44px. End the prompt by telling the builder to
+self-check against `web-design-guidelines` after building.
 
-Evaluate what's missing from the user's prompt:
+### Step 4 — Apply design direction
+- **New pages (esp. without DESIGN.md):** apply `frontend-design` thinking — a
+  distinctive palette/type pairing, one signature element, avoid the AI-default looks,
+  match execution complexity to the vision.
+- **Existing / DESIGN.md cases:** stay inside the established system — the boldness is
+  already decided; consistency wins.
 
-| Element | Check for | If missing... |
-|---------|-----------|---------------|
-| **Platform** | "web", "mobile", "desktop" | Add based on context or ask |
-| **Page type** | "landing page", "dashboard", "form" | Infer from description |
-| **Structure** | Numbered sections/components | Create logical page structure |
-| **Visual style** | Adjectives, mood, vibe | Add appropriate descriptors |
-| **Colors** | Specific values or roles | Add design system or suggest |
-| **Components** | UI-specific terms | Translate to proper keywords |
-
-### Step 2: Check for DESIGN.md
-
-Look for a `DESIGN.md` file in the current project:
-
-**If DESIGN.md exists:**
-1. Read the file to extract the design system block
-2. Include the color palette, typography, and component styles
-3. Format as a "DESIGN SYSTEM (REQUIRED)" section in the output
-
-**If DESIGN.md does not exist:**
-1. Add this note at the end of the enhanced prompt:
-
-```
----
-💡 **Tip:** For consistent designs across multiple screens, create a DESIGN.md 
-file using the `design-md` skill. This ensures all generated pages share the 
-same visual language.
-```
-
-### Step 3: Apply Enhancements
-
-Transform the input using these techniques:
-
-#### A. Add UI/UX Keywords
-
-Replace vague terms with specific component names:
-
-| Vague | Enhanced |
-|-------|----------|
-| "menu at the top" | "navigation bar with logo and menu items" |
-| "button" | "primary call-to-action button" |
-| "list of items" | "card grid layout" or "vertical list with thumbnails" |
-| "form" | "form with labeled input fields and submit button" |
-| "picture area" | "hero section with full-width image" |
-
-#### B. Amplify the Vibe
-
-Add descriptive adjectives to set the mood:
-
-| Basic | Enhanced |
-|-------|----------|
-| "modern" | "clean, minimal, with generous whitespace" |
-| "professional" | "sophisticated, trustworthy, with subtle shadows" |
-| "fun" | "vibrant, playful, with rounded corners and bold colors" |
-| "dark mode" | "dark theme with high-contrast accents on deep backgrounds" |
-
-#### C. Structure the Page
-
-Organize content into numbered sections:
+### Step 5 — Assemble the enhanced prompt
+Output this structure (markdown):
 
 ```markdown
-**Page Structure:**
-1. **Header:** Navigation with logo and menu items
-2. **Hero Section:** Headline, subtext, and primary CTA
-3. **Content Area:** [Describe the main content]
-4. **Footer:** Links, social icons, copyright
-```
+[One-line description of the page's purpose and vibe]
 
-#### D. Format Colors Properly
-
-When colors are mentioned, format them as:
-```
-Descriptive Name (#hexcode) for functional role
-```
-
-Examples:
-- "Deep Ocean Blue (#1a365d) for primary buttons and links"
-- "Warm Cream (#faf5f0) for page background"
-- "Soft Gray (#6b7280) for secondary text"
-
-### Step 4: Format the Output
-
-Structure the enhanced prompt in this order:
-
-```markdown
-[One-line description of the page purpose and vibe]
+**TARGET:** [New page at <route> | Refine existing <page> | Build <page> in our design language]
 
 **DESIGN SYSTEM (REQUIRED):**
-- Platform: [Web/Mobile], [Desktop/Mobile]-first
-- Theme: [Light/Dark], [style descriptors]
-- Background: [Color description] (#hex)
-- Primary Accent: [Color description] (#hex) for [role]
-- Text Primary: [Color description] (#hex)
-- [Additional design tokens...]
+- [From DESIGN.md: descriptive color names (#hex) + roles, type scale, component
+  conventions, icons] — or, if no DESIGN.md, the frontend-design direction
+- Platform / theme / spacing / radius as applicable
 
-**Page Structure:**
-1. **[Section]:** [Description]
-2. **[Section]:** [Description]
-...
+**PAGE STRUCTURE:**
+1. **[Section]:** [components + behavior]
+2. ...
+
+**CONTENT:** [real copy/data from Step 1 investigation — not lorem]
+
+**CONSTRAINTS (quality floor):**
+- Semantic landmarks, visible keyboard focus, AA contrast, reduced motion, responsive, ≥44px targets
+- Apply the `frontend-design` skill for visual direction
+- Self-check the result against the `web-design-guidelines` skill
+
+[Mode 2 only] **PRESERVE:** [what must not change] — make only the changes listed.
 ```
 
-## Output Options
+## Output
 
-**Default:** Return the enhanced prompt as text for the user to copy.
+- **Default:** return the enhanced prompt as text for the user to copy or feed to the
+  build agent.
+- **Optional file:** if asked, write `next-prompt.md` (or a user-named file) for the
+  **`loop-prompt`** skill.
 
-**Optional file output:** If the user requests, write to a file:
-- `next-prompt.md` — for use with the `stitch-loop` skill
-- Custom filename specified by user
+## Enhancement tactics
+
+- **Add UI/UX keywords** — replace vague terms with specific component names; see
+  `references/KEYWORDS.md` for the vocabulary, adjective palettes, and shape
+  translations (`rounded-lg` → "generously rounded corners").
+- **Amplify the vibe** — "modern" → "clean, minimal, generous whitespace"; keep it
+  matched to the brief, don't over-design a simple ask.
+- **Format colors** — always `Descriptive Name (#hex) for [role]`.
+- **Structure** — numbered sections so the build agent reads hierarchy clearly.
+- **One change at a time** for edits — don't bundle unrelated changes.
 
 ## Examples
 
-### Example 1: Vague Input → Structured Prompt
-
-**User input:**
-> "make me a login page"
-
-**Enhanced output:**
+### Example A — Mode 1: new page from a feature
+**User:** "Build a new applicant-review page. Investigate the feature first."
+**You:** Grep the `applicant`/`review` routes, types, and existing list components;
+read DESIGN.md; then output:
 ```markdown
-A clean, trustworthy login page with a centered form and subtle branding.
+A focused applicant-review page: scan candidates fast, act with confidence.
+
+**TARGET:** New page at /workforce/applicants/:id/review
 
 **DESIGN SYSTEM (REQUIRED):**
-- Platform: Web, Desktop-first
-- Theme: Light, minimal, professional
-- Background: Clean White (#ffffff)
-- Surface: Soft Gray (#f9fafb) for form card
-- Primary Accent: Deep Blue (#2563eb) for submit button and links
-- Text Primary: Near Black (#111827) for headings
-- Text Secondary: Medium Gray (#6b7280) for labels
-- Buttons: Subtly rounded (8px), full-width on form
-- Cards: Gently rounded (12px), soft shadow for elevation
+- Accent: Sage Green (#7da36d) for primary actions and active states
+- Surface: White (#ffffff) cards on Warm White (#F8F9F8) page bg
+- Text: Near-black Sage (#1a2b1f) primary, Gray (#4b5563) secondary
+- Status pills per DESIGN.md badge palette; Lucide icons; toast-bottom-center
 
-**Page Structure:**
-1. **Header:** Minimal logo, centered
-2. **Login Card:** Centered form with email, password fields, "Forgot password?" link
-3. **Submit Button:** Primary blue "Sign In" button
-4. **Footer:** "Don't have an account? Sign up" link
+**PAGE STRUCTURE:**
+1. **Header:** breadcrumb + applicant name + status pill
+2. **Summary card:** photo, contact, applied role, applied date
+3. **Decision bar:** Approve / Reject (Sage primary / destructive), sticky on scroll
+...
 
----
-💡 **Tip:** For consistent designs across multiple screens, create a DESIGN.md 
-file using the `design-md` skill.
+**CONTENT:** real fields from the Applicant type — name, role, visa status, availability.
+
+**CONSTRAINTS (quality floor):** landmarks, keyboard focus, AA contrast, responsive,
+≥44px targets. Apply `frontend-design`. Self-check against `web-design-guidelines`.
 ```
 
-### Example 2: Feature Request → Targeted Edit
+### Example B — Mode 3: screenshot → our design language
+**User:** [attaches a screenshot of a competitor's pricing page] "Build this in our design."
+**You:** Read the screenshot for structure (3-tier pricing grid, toggle, FAQ); read
+DESIGN.md; then output a prompt whose **PAGE STRUCTURE** mirrors the screenshot but
+whose **DESIGN SYSTEM** is entirely our tokens — so the layout is theirs, the look is ours.
 
-**User input:**
-> "add a search bar"
+## Tips
 
-**Enhanced output:**
-```markdown
-Add a search bar to the header navigation.
-
-**Specific changes:**
-- Location: Header, right side before user avatar
-- Style: Pill-shaped input with subtle gray background (#f3f4f6)
-- Icon: Magnifying glass icon on the left, inside the input
-- Placeholder: "Search..." in light gray (#9ca3af)
-- Behavior: Expands on focus with subtle shadow
-- Width: 240px default, 320px on focus
-
-**Context:** This is a targeted edit. Make only this change while preserving all existing elements.
-```
-
-## Tips for Best Results
-
-1. **Be specific early** — Vague inputs need more enhancement
-2. **Match the user's intent** — Don't over-design if they want simple
-3. **Keep it structured** — Numbered sections help Stitch understand hierarchy
-4. **Include the design system** — Consistency is key for multi-page projects
-5. **One change at a time for edits** — Don't bundle unrelated changes
+1. **Investigate before enhancing** — a grounded prompt beats a generic one.
+2. **DESIGN.md is the contract** — when it exists, never invent off-system colors.
+3. **Match the user's intent** — don't over-design a simple request.
+4. **The output is a prompt** — hand the builder direction + constraints, not code.

@@ -165,7 +165,6 @@ agent-browser close
 ### Global MCPs (always available)
 | Server | Purpose |
 |--------|---------|
-| stitch | Generate UI designs from text prompts |
 | context7 | Documentation lookup and code context |
 | aiguide | PostgreSQL/TimescaleDB documentation search |
 
@@ -191,7 +190,7 @@ gemini extensions install https://github.com/gemini-cli-extensions/stitch --auto
 ### Global (Symlinked)
 - Settings, permissions, themes (full symlink on new machine; skills-only symlink on existing machine)
 - Shared skills (`skills/`) — always linked regardless of machine state
-- MCP servers that apply everywhere (stitch, context7, aiguide)
+- MCP servers that apply everywhere (context7, aiguide)
 
 ### Local (Copied per-project)
 - CLAUDE.md / GEMINI.md / AGENT.md / AGENTS.md context files

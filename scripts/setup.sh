@@ -55,6 +55,35 @@ persist_path_entry() {
     echo "    Added $entry to PATH in $rc_file"
 }
 
+persist_model_set_env() {
+    local shell_name rc_file marker
+
+    shell_name="$(basename "${SHELL:-bash}")"
+    case "$shell_name" in
+        zsh) rc_file="$HOME/.zshrc" ;;
+        fish) rc_file="" ;;
+        *) rc_file="$HOME/.bashrc" ;;
+    esac
+
+    if [ -z "$rc_file" ]; then
+        echo "    Note: source $REPO_DIR/.env manually before launching Codex."
+        return 0
+    fi
+
+    marker="# model-set MCP/API env for Codex and other local CLIs."
+    if [ -f "$rc_file" ] && grep -Fqx "$marker" "$rc_file"; then
+        return 0
+    fi
+
+    printf "\n%s\n" "$marker" >> "$rc_file"
+    printf "%s\n" "if [ -f \"$REPO_DIR/.env\" ]; then" >> "$rc_file"
+    printf "%s\n" "  set -a" >> "$rc_file"
+    printf "%s\n" "  source \"$REPO_DIR/.env\"" >> "$rc_file"
+    printf "%s\n" "  set +a" >> "$rc_file"
+    printf "%s\n" "fi" >> "$rc_file"
+    echo "    Added model-set .env export block to $rc_file"
+}
+
 ensure_npm_global_prefix() {
     local prefix parent bin
 
@@ -539,21 +568,13 @@ fi
 echo ""
 
 # =====================================================
-# 3. Setup Stitch MCP (HTTP transport via API key)
+# 3. Setup Stitch (Gemini CLI extension only)
 # =====================================================
-echo "Setting up Stitch MCP..."
+echo "Setting up Stitch (Gemini CLI extension)..."
 
 STITCH_KEY=$(grep '^STITCH_API_KEY=' "$REPO_DIR/.env" 2>/dev/null | cut -d'=' -f2- | xargs)
 if [ -n "$STITCH_KEY" ] && [ "$STITCH_KEY" != "AQ.STITCH_API_KEY" ]; then
     echo "  Stitch API key found in .env"
-
-    # Add Stitch to Claude Code (HTTP transport, user scope)
-    if command -v claude &> /dev/null; then
-        claude mcp add stitch --transport http https://stitch.googleapis.com/mcp \
-            --header "X-Goog-Api-Key: $STITCH_KEY" -s user 2>/dev/null && \
-            echo "    Added stitch to Claude Code (user scope)" || \
-            echo "    Warning: Failed to add stitch to Claude Code"
-    fi
 
     # Install Stitch extension for Gemini CLI
     if command -v gemini &> /dev/null; then
@@ -587,6 +608,10 @@ if [ ! -f "$ENV_FILE" ]; then
     echo "  Create it from .env.example and fill in your API keys:"
     echo "    cp \"$ENV_EXAMPLE\" \"$ENV_FILE\""
     echo ""
+fi
+
+if [ -f "$ENV_FILE" ]; then
+    persist_model_set_env
 fi
 
 # =====================================================
@@ -756,7 +781,6 @@ echo "  - ~/.opencode -> model-set/global/opencode"
 echo "  - ~/.codex -> model-set/global/codex"
 echo ""
 echo "MCP Servers configured:"
-echo "  - stitch (HTTP transport, API key in .env)"
 echo "  - context7 (HTTP transport, API key in .env)"
 echo "  - aiguide (npx @tigerdata/pg-aiguide, no auth required)"
 echo ""

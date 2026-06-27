@@ -44,6 +44,8 @@ global/claude/telemetry/
 global/claude/sessions/*.json
 global/claude/.last-cleanup
 global/claude/mcp-needs-auth-cache.json
+global/claude/.last-update-result.json
+global/claude/session-env/
 
 # Codex runtime data
 global/codex/.personality_migration
@@ -56,6 +58,8 @@ global/codex/sessions/
 global/codex/state_*.sqlite
 global/codex/state_*.sqlite-shm
 global/codex/state_*.sqlite-wal
+global/codex/goals_*.sqlite*
+global/codex/memories_*.sqlite*
 global/codex/tmp/
 global/codex/version.json
 global/codex/shell_snapshots/
@@ -92,6 +96,9 @@ ralph/scratchpad/
 
 # Old files
 _archive
+
+# Agent file sync backups (auto-generated)
+agent_file_backups/
 
 # Python cache
 __pycache__/

@@ -2,12 +2,6 @@
   "theme": "Default",
   "permissions": {
     "autoApprove": [
-      "mcp:stitch:create_project",
-      "mcp:stitch:get_project",
-      "mcp:stitch:list_projects",
-      "mcp:stitch:list_screens",
-      "mcp:stitch:get_screen",
-      "mcp:stitch:generate_screen_from_text",
       "mcp:context7:resolve-library-id",
       "mcp:context7:get-library-docs",
       "mcp:aiguide:search_docs",

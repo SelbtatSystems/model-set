@@ -1,10 +1,12 @@
-# AGENTS.md
+# CLAUDE.md
 
-> Global context for OpenAI Codex CLI
+> Global context for Codex
+
 ## Output Standards
+
 **Code** No bloated abstractions, premature generalization, or unexplained cleverness. Match existing codebase style. Meaningful variable names.
 
-**Cumunication** In all interactions and commit messages, be concise and sacrifice grammar for the sake of concision, be direct about problems. Quantify ("~200ms latency" not "might be slower"). When stuck, say so + what you tried. Don't hide uncertainty behind confidence.
+**Cumunication** In all interactions and commit messages, be concise and sacrifice grammar for the sake of concision, be direct about problems. Quantify ("~200ms latency" not "might be slower"). When stuck, say so + what you tried. Don't hide uncertainty behind confidence. Do not sacrifice clarity. Use short, simple sentences and explain technical decisions like I am early in my development journey.
 
 **Change Summary**(after every modification):
 "**Changes**: [file]: [what+why]
@@ -12,32 +14,21 @@
 **Concerns**: [risks to verify]
 **Removed Dead Code** [list]"
 
-## Git & GitHub
-- Use `gh` CLI for GitHub operations
-- Prefix branches with `sven/`
+## Tools
 
-## MCP Servers
+### Context7 MCP
 
-### Global MCPs (always available)
-- **stitch**: Generate UI designs from text prompts
-- **context7**: Documentation lookup and code context
+Use to: Fetch current, version-accurate docs instead of relying on training data.
 
-### Local MCPs (project-specific)
-- **postgres**: Database queries and schema management
-- **redis**: Cache operations
+### agend-browser Skill
 
-## Browser Testing (agent-browser)
+Use to Browser: debug, Screenshot, Test, Read Console errors.
 
-Use `agent-browser` to debug and test in the browser 
+**Best Practices**:
 
-### Best Practices
 - Always `snapshot -i` before interacting (refs invalidate on page changes)
 - Re-snapshot after navigation or dynamic content changes
 
+## Dead Code Hygiene
 
-**REQUIRED after every feature implementation and frontend change.**
-
-Run the `design-review` skill after completing UI work. The agent reviews visual consistency, accessibility, responsiveness, and code health against project design systems and S-Tier SaaS standards.
-
-**Blockers and High-Priority findings must be fixed before considering the work done.**
-Do not leave critical issues for follow-up — fix them immediately, then re-run the `design-review` to verify.
+After refactors: identify unreachable code, if you upsolutly shure that this code is dead remove it. Don't leave corpses.

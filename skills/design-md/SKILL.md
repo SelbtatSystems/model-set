@@ -1,168 +1,142 @@
 ---
 name: design-md
-description: Analyze Stitch projects and synthesize a semantic design system into DESIGN.md files
-allowed-tools: mcp__stitch__* Read Write WebFetch
+description: Synthesize a semantic design system into a DESIGN.md by analyzing an app's existing UI — CSS tokens, component code, and rendered screenshots. Produces the canonical design-context file consumed by the design-review skill and frontend-review agent.
+allowed-tools: Read Write Grep Glob WebFetch
 ---
 
-# Stitch DESIGN.md Skill
+# DESIGN.md Skill
 
-You are an expert Design Systems Lead. Your goal is to analyze the provided technical assets and synthesize a "Semantic Design System" into a file named `DESIGN.md`.
+You are an expert Design Systems Lead. Your goal is to analyze an app's existing UI
+assets and synthesize a **Semantic Design System** into a file named `DESIGN.md`.
 
-## Overview
+## What DESIGN.md is
 
-This skill helps you create `DESIGN.md` files that serve as the "source of truth" for prompting Stitch to generate new screens that align perfectly with existing design language. Stitch interprets design through "Visual Descriptions" supported by specific color values.
+`DESIGN.md` is the **single source of truth** for an app's design language. It
+documents **what exists in the build** (every value traceable to a token, CSS
+class, or component) in evocative, semantic language — descriptive color names with
+exact hex, component prose, layout rules.
 
-## Prerequisites
+It is consumed downstream as design context by:
+- the **`design-review`** skill and **`frontend-review`** agent (they resolve it to check conformance), and
+- any LLM/codegen step generating a new screen (the descriptive language steers output to stay inside the system).
 
-- Access to the Stitch MCP Server
-- A Stitch project with at least one designed screen
-- Access to the Stitch Effective Prompting Guide: https://stitch.withgoogle.com/docs/learn/prompting/
+So write it to be both **human-readable** and **prompt-ready** context.
 
-## The Goal
+## Where it lives
 
-The `DESIGN.md` file will serve as the "source of truth" for prompting Stitch to generate new screens that align perfectly with the existing design language. Stitch interprets design through "Visual Descriptions" supported by specific color values.
+This project keeps one per app at **`llm-wiki/apps/<VaultName>/DESIGN.md`**
+(app↔vault map in the project `CLAUDE.md`, e.g. `agcore-web → AgCore-web`,
+`myfarmjob-web → MyFarmJob`, `myfarmjob-eForm-web → eForm`). If the project has no
+such convention, write `DESIGN.md` at the project (or app) root. Always confirm the
+target path before writing; never clobber a hand-curated DESIGN.md — update in place.
 
-## Retrieval and Networking
+## Scope
 
-To analyze a Stitch project, you must retrieve screen metadata and design assets using the Stitch MCP Server tools:
+**If the user names specific pages or components when invoking the skill, focus
+exclusively on the style of those pages and components** — screenshot and document
+only them, not the whole app. Otherwise, cover the app's representative surfaces.
 
-1. **Namespace discovery**: Run `list_tools` to find the Stitch MCP prefix. Use this prefix (e.g., `mcp_stitch:`) for all subsequent calls.
+## Inputs to analyze
 
-2. **Project lookup** (if Project ID is not provided):
-   - Call `[prefix]:list_projects` with `filter: "view=owned"` to retrieve all user projects
-   - Identify the target project by title or URL pattern
-   - Extract the Project ID from the `name` field (e.g., `projects/13534454087919359824`)
+Gather the real evidence first — never invent values. In priority order:
 
-3. **Screen lookup** (if Screen ID is not provided):
-   - Call `[prefix]:list_screens` with the `projectId` (just the numeric ID, not the full path)
-   - Review screen titles to identify the target screen (e.g., "Home", "Landing Page")
-   - Extract the Screen ID from the screen's `name` field
+1. **Token/style sources** — `packages/shared-ui/src/styles/tokens.css`, the app's
+   `globals.css`, `tailwind.config.js`. The semantic vars, raw palettes, and scale
+   tokens come straight from here.
+2. **Component source** — the app's real components and the CSS classes they use
+   (buttons, inputs, cards, nav, tables, dropdowns, badges). Anchor each component's
+   description to the file/class it comes from.
+3. **Rendered UI (preferred when available)** — use the `agent-browser` skill to
+   shoot screenshots of the in-scope pages in light + dark, so you build a real
+   understanding of how they look before describing them. (`snapshot -i` before
+   interacting; re-snapshot after navigation.) Use the shots to capture atmosphere,
+   verify computed colors/fonts against the tokens, and quantify contrast. If the
+   user named specific pages, screenshot only those.
+4. **Design brief / mockups** — if the app (or part of it) isn't built yet, use what
+   the user provides, and mark those sections as intended-not-verified in §TODO.
 
-4. **Metadata fetch**: 
-   - Call `[prefix]:get_screen` with both `projectId` and `screenId` (both as numeric IDs only)
-   - This returns the complete screen object including:
-     - `screenshot.downloadUrl` - Visual reference of the design
-     - `htmlCode.downloadUrl` - Full HTML/CSS source code
-     - `width`, `height`, `deviceType` - Screen dimensions and target platform
-     - Project metadata including `designTheme` with color and style information
+Use `Grep`/`Glob` to locate sources, `Read` to extract, `WebFetch` only for the
+reference below.
 
-5. **Asset download**:
-   - Use `web_fetch` or `read_url_content` to download the HTML code from `htmlCode.downloadUrl`
-   - Optionally download the screenshot from `screenshot.downloadUrl` for visual reference
-   - Parse the HTML to extract Tailwind classes, custom CSS, and component patterns
+## Analysis & synthesis steps
 
-6. **Project metadata extraction**:
-   - Call `[prefix]:get_project` with the project `name` (full path: `projects/{id}`) to get:
-     - `designTheme` object with color mode, fonts, roundness, custom colors
-     - Project-level design guidelines and descriptions
-     - Device type preferences and layout principles
+Work the chain: **locate → extract → translate to semantic language → synthesize**.
 
-## Analysis & Synthesis Instructions
+1. **Scope & identity** — name the app/surface; list the source assets you analyzed.
+2. **Atmosphere** — evaluate the rendered screens + structure to capture the "vibe."
+   Use evocative adjectives ("airy," "dense," "minimalist," "utilitarian").
+3. **Foundations** — root font size + rem scale, type scale by role, and the scale
+   tokens (spacing / radius / shadow / transition / touch target).
+4. **Color palette & roles** — for each key color: a **descriptive natural-language
+   name** ("Deep Muted Teal-Navy"), the **exact hex** in parentheses (#294056), and
+   its **functional role**. Then map **semantic tokens** (var → light → dark → role).
+5. **Contrast** — quantify key text/background pairs against the WCAG AA threshold
+   (e.g. "Charcoal on Cream → ~13:1, AAA"). Quote ratios; flag any that fail.
+6. **Typography by role** — family, weight per H1–H4/body/meta, letter-spacing, line-height.
+7. **Geometry & depth** — translate technical values: `rounded-lg` → "subtly rounded
+   corners"; `rounded-full` → "pill-shaped"; describe shadow presence/quality
+   ("flat," "whisper-soft diffused," "heavy drop").
+8. **Component stylings** — buttons, inputs, cards, nav (and tables/dropdowns/badges
+   if present), each anchored to its component file/CSS class.
+9. **Layout** — grid, breakpoints, whitespace strategy, and internal-vs-external
+   spacing conventions.
+10. **Icon conventions** — which set, name→meaning map, status glyphs.
+11. **Verbatim authoritative blocks** — non-paraphrasable rules (icon set, toast
+    placement, reserved functional colors) in a §0 block.
+12. **Unconfirmed / TODO** — anything you couldn't verify against the rendered build.
 
-### 1. Extract Project Identity (JSON)
-- Locate the Project Title
-- Locate the specific Project ID (e.g., from the `name` field in the JSON)
+## Output format
 
-### 2. Define the Atmosphere (Image/HTML)
-Evaluate the screenshot and HTML structure to capture the overall "vibe." Use evocative adjectives to describe the mood (e.g., "Airy," "Dense," "Minimalist," "Utilitarian").
+Follow the structure and voice of the canonical example: **`examples/DESIGN.md`**.
+Read it before writing — it is the shape/voice target. Its sections:
 
-### 3. Map the Color Palette (Tailwind Config/JSON)
-Identify the key colors in the system. For each color, provide:
-- A descriptive, natural language name that conveys its character (e.g., "Deep Muted Teal-Navy")
-- The specific hex code in parentheses for precision (e.g., "#294056")
-- Its specific functional role (e.g., "Used for primary actions")
-
-### 4. Translate Geometry & Shape (CSS/Tailwind)
-Convert technical `border-radius` and layout values into physical descriptions:
-- Describe `rounded-full` as "Pill-shaped"
-- Describe `rounded-lg` as "Subtly rounded corners"
-- Describe `rounded-none` as "Sharp, squared-off edges"
-
-### 5. Describe Depth & Elevation
-Explain how the UI handles layers. Describe the presence and quality of shadows (e.g., "Flat," "Whisper-soft diffused shadows," or "Heavy, high-contrast drop shadows").
-
-## Output Guidelines
-
-- **Language:** Use descriptive design terminology and natural language exclusively
-- **Format:** Generate a clean Markdown file following the structure below
-- **Precision:** Include exact hex codes for colors while using descriptive names
-- **Context:** Explain the "why" behind design decisions, not just the "what"
-
-## Output Format (DESIGN.md Structure)
-
-```markdown
-# Design System: [Project Title]
-**Project ID:** [Insert Project ID Here]
-
+```
+# Design System: [App / Surface]
+> Scope blockquote (what it documents + source assets analyzed)
+## 0. Verbatim authoritative blocks
 ## 1. Visual Theme & Atmosphere
-(Description of the mood, density, and aesthetic philosophy.)
-
-## 2. Color Palette & Roles
-(List colors by Descriptive Name + Hex Code + Functional Role.)
-
-## 3. Typography Rules
-(Description of font family, weight usage for headers vs. body, and letter-spacing character.)
-
-## 4. Component Stylings
-* **Buttons:** (Shape description, color assignment, behavior).
-* **Cards/Containers:** (Corner roundness description, background color, shadow depth).
-* **Inputs/Forms:** (Stroke style, background).
-
-## 5. Layout Principles
-(Description of whitespace strategy, margins, and grid alignment.)
+## 2. Foundations            (type scale + scale tokens)
+## 3. Color Palette & Roles  (raw palette · semantic light/dark table · contrast)
+## 4. Typography Rules
+## 5. Component Stylings
+## 6. Layout Principles       (incl. internal vs external spacing)
+## 7. Icon Conventions
+## 8. Unconfirmed / TODO
+## Using this document
 ```
 
-## Usage Example
+Scale the depth to the app: a marketing page needs fewer component sections than a
+data-dense dashboard. Add sections (reference-page anatomies, color-by-role map)
+when the app warrants them — but never pad with values you didn't verify.
 
-To use this skill for the Furniture Collection project:
+## Writing principles
 
-1. **Retrieve project information:**
-   ```
-   Use the Stitch MCP Server to get the Furniture Collection project
-   ```
+- **Descriptive + precise:** never "blue" or "rounded" — "Ocean-deep Cerulean
+  (#0077B6)," "gently curved edges (8px)." Name colors by purpose; keep exact values.
+- **Explain the why,** not just the what, behind each decision.
+- **Anchor to code:** cite the token / CSS class / component file a value comes from.
+- **Consistent vocabulary:** the descriptive names are the contract — reuse them
+  exactly throughout, so downstream prose and generation reference one set of terms.
+- **Be honest:** mark anything unverified against the rendered build in §TODO; don't
+  present intended values as shipped.
 
-2. **Get the Home page screen details:**
-   ```
-   Retrieve the Home page screen's code, image, and screen object information
-   ```
+## Reference: writing DESIGN.md as effective LLM context
 
-3. **Reference best practices:**
-   ```
-   Review the Stitch Effective Prompting Guide at:
-   https://stitch.withgoogle.com/docs/learn/prompting/
-   ```
+Since DESIGN.md doubles as prompt context for screen generation, a few general
+prompting techniques sharpen it — see https://www.promptingguide.ai/techniques:
+- **Few-shot** — `examples/DESIGN.md` is the worked exemplar; match its structure and
+  granularity rather than inventing a new shape.
+- **Chain-of-thought / prompt chaining** — the locate→extract→translate→synthesize
+  steps above are a deliberate decomposition; don't skip straight to prose.
+- **Multimodal CoT** — reason jointly over the screenshot (image) and the
+  code/tokens (text); let one verify the other (computed color vs token value).
+- **Directional stimulus** — the evocative descriptive names ("whisper-soft shadow")
+  are the steering hints that keep downstream generation on-brand. Choose them well.
 
-4. **Analyze and synthesize:**
-   - Extract all relevant design tokens from the screen
-   - Translate technical values into descriptive language
-   - Organize information according to the DESIGN.md structure
+## Common pitfalls to avoid
 
-5. **Generate the file:**
-   - Create `DESIGN.md` in the project directory
-   - Follow the prescribed format exactly
-   - Ensure all color codes are accurate
-   - Use evocative, designer-friendly language
-
-## Best Practices
-
-- **Be Descriptive:** Avoid generic terms like "blue" or "rounded." Use "Ocean-deep Cerulean (#0077B6)" or "Gently curved edges"
-- **Be Functional:** Always explain what each design element is used for
-- **Be Consistent:** Use the same terminology throughout the document
-- **Be Visual:** Help readers visualize the design through your descriptions
-- **Be Precise:** Include exact values (hex codes, pixel values) in parentheses after natural language descriptions
-
-## Tips for Success
-
-1. **Start with the big picture:** Understand the overall aesthetic before diving into details
-2. **Look for patterns:** Identify consistent spacing, sizing, and styling patterns
-3. **Think semantically:** Name colors by their purpose, not just their appearance
-4. **Consider hierarchy:** Document how visual weight and importance are communicated
-5. **Reference the guide:** Use language and patterns from the Stitch Effective Prompting Guide
-
-## Common Pitfalls to Avoid
-
-- ❌ Using technical jargon without translation (e.g., "rounded-xl" instead of "generously rounded corners")
-- ❌ Omitting color codes or using only descriptive names
-- ❌ Forgetting to explain functional roles of design elements
-- ❌ Being too vague in atmosphere descriptions
-- ❌ Ignoring subtle design details like shadows or spacing patterns
+- ❌ Technical jargon without translation ("rounded-xl" instead of "generously rounded corners")
+- ❌ Color names without hex codes, or hex without descriptive names
+- ❌ Omitting functional roles, or contrast ratios for text pairs
+- ❌ Vague atmosphere descriptions; ignoring shadows/spacing
+- ❌ Inventing values not present in the build, or overwriting a curated DESIGN.md

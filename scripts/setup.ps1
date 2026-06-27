@@ -588,9 +588,9 @@ try {
 Write-Host ""
 
 # =====================================================
-# 3. Setup Stitch MCP (API key-based)
+# 3. Setup Stitch (Gemini CLI extension only)
 # =====================================================
-Write-Host "Setting up Stitch MCP..." -ForegroundColor Yellow
+Write-Host "Setting up Stitch (Gemini CLI extension)..." -ForegroundColor Yellow
 
 $EnvFile = Join-Path $RepoDir ".env"
 $StitchKey = ""
@@ -600,15 +600,6 @@ if (Test-Path $EnvFile) {
 
 if ($StitchKey -and $StitchKey -ne "AQ.STITCH_API_KEY") {
     Write-Host "  Stitch API key found in .env" -ForegroundColor Green
-
-    # Add Stitch to Claude Code (HTTP transport, user scope)
-    try {
-        claude mcp add stitch --transport http https://stitch.googleapis.com/mcp `
-            --header "X-Goog-Api-Key: $StitchKey" -s user 2>$null
-        Write-Host "    Added stitch to Claude Code (user scope)" -ForegroundColor Green
-    } catch {
-        Write-Host "    Warning: Failed to add stitch to Claude Code" -ForegroundColor Yellow
-    }
 
     # Install Stitch extension for Gemini CLI and configure with API key
     try {
@@ -813,7 +804,6 @@ Write-Host "  - ~/.opencode -> model-set/global/opencode"
 Write-Host "  - ~/.codex -> model-set/global/codex"
 Write-Host ""
 Write-Host "MCP Servers configured:" -ForegroundColor Cyan
-Write-Host "  - stitch (OAuth via stitch-mcp-auto)"
 Write-Host "  - context7 (API key in .env)"
 Write-Host "  - aiguide (no auth required)"
 Write-Host ""

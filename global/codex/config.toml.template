@@ -6,28 +6,29 @@
 # ------------------------------------------------------------------------------
 model = "gpt-5.5"
 model_reasoning_effort = "high"
-multi_agent = "true"
+multi_agent = true
 personality = "pragmatic"
+approval_policy = "untrusted"
+sandbox_mode = "workspace-write"
+[sandbox_workspace_write]
+network_access = true
+
 
 [tui]
+notifications = true
 notification_condition = "always"
+notification_method = "osc9"
 status_line = ["model-with-reasoning", "context-used"]
 
 # MCP Servers - Global (always available)
 # ------------------------------------------------------------------------------
 [mcp_servers.context7]
-url = "https://mcp.context7.com/mcp"
-env_http_headers = { CONTEXT7_API_KEY = "CONTEXT7_API_KEY" }
-
-[mcp_servers.stitch]
 command = "npx"
-args = ["-y", "@_davideast/stitch-mcp", "proxy"]
-env_vars = ["STITCH_API_KEY", "GOOGLE_CLOUD_PROJECT"]
+args = ["-y", "@upstash/context7-mcp"]
+env_vars = ["CONTEXT7_API_KEY"]
 
 # AUTHORIZATION
 # ------------------------------------------------------------------------------
-[runtime]
-approval_policy = "untrusted"
 [windows]
 sandbox = "elevated"
 

@@ -9,12 +9,6 @@
   "includeCoAuthoredBy": false,
   "permissions": {
     "allow": [
-      "mcp__stitch__create_project",
-      "mcp__stitch__get_project",
-      "mcp__stitch__list_projects",
-      "mcp__stitch__list_screens",
-      "mcp__stitch__get_screen",
-      "mcp__stitch__generate_screen_from_text",
       "mcp__context7__resolve-library-id",
       "mcp__context7__get-library-docs",
       "mcp__plugin_pg_pg-aiguide__search_docs",
@@ -87,7 +81,6 @@
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
-    "stitch",
     "context7",
     "aiguide"
   ],
@@ -108,6 +101,7 @@
     }
   },
   "effortLevel": "xhigh",
+  "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
-  "theme": "dark"
+  "theme": "auto"
 }

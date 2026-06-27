@@ -1,0 +1,4 @@
+interface:
+  display_name: "AgCore Data Layer"
+  short_description: "Postgres, Redis, MinIO changes"
+  default_prompt: "Use $agcore-data-layer to plan a safe AgCore database or storage change."

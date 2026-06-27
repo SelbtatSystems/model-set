@@ -51,6 +51,6 @@ Discover the repo's quality gate first (`cat package.json`, `ls .github/workflow
 
 ### 7. Close the loop in the tracker
 
-In the ticket file: flip `**Triage:**` to `done` and append a dated `## Comments` line linking the PR; commit the wiki. **Never modify the parent PRD.** Then name the tickets this unblocks and stop — the next run takes the next ticket.
+In the ticket file: flip `**Triage:**` to `done` and append a dated `## Comments` line linking the PR. **Never modify the parent PRD.** Then name the tickets this unblocks and stop — the next run takes the next ticket. (Write the tracker file only; do not commit it or run its scripts if the tracker lives in an externally-managed store — follow the repo's tracker config.)
 
 ✓ **Done when:** the ticket's `**Triage:**` reads `done` and a `## Comments` entry links the PR.

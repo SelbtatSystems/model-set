@@ -25,9 +25,10 @@ code .env
 The setup script will:
 1. Auto-install Python 3 and Node.js/npm if not found (via supported package managers; Python also has a direct-download fallback on Windows)
 2. Install/update CLI tools (Claude Code, Gemini CLI, OpenCode, Codex CLI, agent-browser), install the agent-browser browser runtime, sync the upstream agent-browser skill, and install the Warp plugin for Claude Code (`warpdotdev/claude-code-warp`)
-3. Smart symlinks for `~/.claude`, `~/.gemini`, `~/.opencode`, `~/.codex`:
+3. Config for `~/.claude`, `~/.gemini`, `~/.opencode`, `~/.codex`:
    - **New machine** (dir doesn't exist): full symlink → `repo/global/<tool>/`
-   - **Existing machine** (real dir exists): symlink only `<dir>/skills` → `repo/skills/`, leaving all other config untouched
+   - **Existing machine** (real dir exists): left untouched
+   - Each tool's `skills/` is seeded once from `repo/skills/` and then owned by that tool — an existing skills directory is never overwritten
 4. Install the Stitch extension for Gemini CLI with API key auth (`STITCH_API_KEY`)
 5. Generate `~/.mcp.json` from template (skipped if file already exists) and `~/.codex/config.toml`
 
@@ -69,7 +70,7 @@ chmod +x scripts/*.sh
 
 ```
 model-set/
-├── skills/               # Shared skills — available to ALL AI tools
+├── skills/               # Skill source — each AI tool is seeded a copy, then owns it
 │   ├── agent-browser/    # Browser testing skill + screenshot storage
 │   ├── composition-patterns/   # React composition patterns
 │   ├── design-md/        # Generate design documents
@@ -101,14 +102,19 @@ model-set/
 
 ## Skills
 
-All skills live in `skills/` and are shared across every AI tool via symlinks:
+`skills/` is the tracked source. Every AI tool gets its **own** skills directory,
+seeded from it on first setup and independent from then on — each agent's skill set
+can diverge freely:
 
 ```
-~/.claude/skills   → model-set/skills/
-~/.gemini/skills   → model-set/skills/
-~/.opencode/skills → model-set/skills/
-~/.codex/skills    → model-set/skills/
+skills/  ──seed──▶  ~/.claude/skills     (own copy, gitignored)
+                    ~/.gemini/skills     (own copy, gitignored)
+                    ~/.opencode/skills   (own copy, gitignored)
+                    ~/.codex/skills      (own copy, gitignored)
 ```
+
+Setup never overwrites a skills directory that already exists. To push a change from
+`skills/` out to a tool, copy it across deliberately.
 
 ### Available Skills
 
@@ -188,8 +194,8 @@ gemini extensions install https://github.com/gemini-cli-extensions/stitch --auto
 ## Global vs Local Configs
 
 ### Global (Symlinked)
-- Settings, permissions, themes (full symlink on new machine; skills-only symlink on existing machine)
-- Shared skills (`skills/`) — always linked regardless of machine state
+- Settings, permissions, themes (full symlink on new machine; existing dirs left untouched)
+- Skills (`skills/`) — seeded per tool, not linked; each tool owns its copy
 - MCP servers that apply everywhere (context7, aiguide)
 
 ### Local (Copied per-project)

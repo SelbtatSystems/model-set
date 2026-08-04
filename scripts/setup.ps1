@@ -402,12 +402,39 @@ function Link-ToolConfig {
     }
 }
 
-# Always ensure skills symlinks exist inside repo global dirs
-# (used when the full-dir symlink path is taken on a new machine)
-New-SymlinkSafe -Link "$RepoDir\global\claude\skills"   -Target "$RepoDir\skills"
-New-SymlinkSafe -Link "$RepoDir\global\gemini\skills"   -Target "$RepoDir\skills"
-New-SymlinkSafe -Link "$RepoDir\global\opencode\skills" -Target "$RepoDir\skills"
-New-SymlinkSafe -Link "$RepoDir\global\codex\skills"    -Target "$RepoDir\skills"
+# Seed a tool's own skills directory from repo\skills.
+# Each agent owns its skills from here on, so this only ever SEEDS: an existing
+# directory is left untouched, however far it has diverged. Never backs up, never
+# overwrites — the dirs are gitignored, so a clobber would be unrecoverable.
+function Initialize-SkillsDir {
+    param (
+        [string]$Dir,     # e.g. repo\global\claude\skills
+        [string]$Source   # e.g. repo\skills
+    )
+
+    if (Test-Path $Dir) {
+        $item = Get-Item $Dir -Force
+        if ($item.LinkType -eq "SymbolicLink" -or $item.LinkType -eq "Junction") {
+            # Migration from the old shared-symlink layout.
+            Write-Host "  $Dir -> replacing shared link with own copy" -ForegroundColor Yellow
+            $item.Delete()
+        } else {
+            Write-Host "  $Dir -> already present, left untouched" -ForegroundColor Green
+            return
+        }
+    }
+
+    New-Item -ItemType Directory -Path $Dir -Force | Out-Null
+    Copy-Item -Path "$Source\*" -Destination $Dir -Recurse -Force
+    Write-Host "  $Dir -> seeded from $Source" -ForegroundColor Green
+}
+
+# Each agent gets its own skills directory (gitignored); repo\skills is the source
+# they are seeded from, not a live shared target.
+Initialize-SkillsDir -Dir "$RepoDir\global\claude\skills"   -Source "$RepoDir\skills"
+Initialize-SkillsDir -Dir "$RepoDir\global\gemini\skills"   -Source "$RepoDir\skills"
+Initialize-SkillsDir -Dir "$RepoDir\global\opencode\skills" -Source "$RepoDir\skills"
+Initialize-SkillsDir -Dir "$RepoDir\global\codex\skills"    -Source "$RepoDir\skills"
 # Link tool config dirs (always full symlink, backup existing)
 Link-ToolConfig -ConfigDir "$HomeDir\.claude"   -RepoGlobal "$RepoDir\global\claude"
 Link-ToolConfig -ConfigDir "$HomeDir\.gemini"   -RepoGlobal "$RepoDir\global\gemini"

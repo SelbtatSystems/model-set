@@ -368,12 +368,34 @@ link_tool_config() {
     fi
 }
 
-# Always ensure skills symlinks exist inside repo global dirs
-# (used when the full-dir symlink path is taken on a new machine)
-create_symlink "$REPO_DIR/global/claude/skills"   "$REPO_DIR/skills"
-create_symlink "$REPO_DIR/global/gemini/skills"   "$REPO_DIR/skills"
-create_symlink "$REPO_DIR/global/opencode/skills" "$REPO_DIR/skills"
-create_symlink "$REPO_DIR/global/codex/skills"    "$REPO_DIR/skills"
+# Seed a tool's own skills directory from repo/skills.
+# Each agent owns its skills from here on, so this only ever SEEDS: an existing
+# directory is left untouched, however far it has diverged. Never backs up, never
+# overwrites — the dirs are gitignored, so a clobber would be unrecoverable.
+seed_skills_dir() {
+    local dir="$1"     # e.g. repo/global/claude/skills
+    local source="$2"  # e.g. repo/skills
+
+    if [ -L "$dir" ]; then
+        # Migration from the old shared-symlink layout.
+        echo "  $dir -> replacing shared symlink with own copy"
+        rm "$dir"
+    elif [ -d "$dir" ]; then
+        echo "  $dir -> already present, left untouched"
+        return
+    fi
+
+    mkdir -p "$dir"
+    cp -a "$source/." "$dir/"
+    echo "  $dir -> seeded from $source"
+}
+
+# Each agent gets its own skills directory (gitignored); repo/skills is the source
+# they are seeded from, not a live shared target.
+seed_skills_dir "$REPO_DIR/global/claude/skills"   "$REPO_DIR/skills"
+seed_skills_dir "$REPO_DIR/global/gemini/skills"   "$REPO_DIR/skills"
+seed_skills_dir "$REPO_DIR/global/opencode/skills" "$REPO_DIR/skills"
+seed_skills_dir "$REPO_DIR/global/codex/skills"    "$REPO_DIR/skills"
 # Link tool config dirs (always full symlink, backup existing)
 link_tool_config "$HOME_DIR/.claude"   "$REPO_DIR/global/claude"
 link_tool_config "$HOME_DIR/.gemini"   "$REPO_DIR/global/gemini"
@@ -562,6 +584,16 @@ if command -v codex &> /dev/null; then
 else
     echo " installing..."
     npm install -g @openai/codex
+    echo "    Installed!"
+fi
+
+# Firecrawl CLI (auth via FIRECRAWL_API_KEY env var, sourced from .env — no login needed)
+echo -n "  - Firecrawl CLI..."
+if command -v firecrawl &> /dev/null; then
+    echo " (already installed: $(firecrawl --version 2>/dev/null || echo 'unknown'))"
+else
+    echo " installing..."
+    npm install -g firecrawl-cli
     echo "    Installed!"
 fi
 

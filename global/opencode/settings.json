@@ -42,6 +42,7 @@
       "shell:agent-browser close *",
       "shell:agent-browser console *",
       "shell:agent-browser install *",
+      "shell:firecrawl *",
       "shell:docker *",
       "shell:docker-compose *",
       "shell:git *",

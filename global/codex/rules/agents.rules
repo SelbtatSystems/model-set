@@ -1,0 +1,60 @@
+# Codex exec-policy rules (Starlark) — hard command gates matching AGENTS.md Git rules.
+# Docs: https://developers.openai.com/codex/rules
+# Note: prefix-token matching — a flag in a later position (e.g. `git push origin main --force`)
+# is NOT caught by these prefix rules unless the prefix order matches.
+
+prefix_rule(
+    pattern = ["git", "push", "--force"],
+    decision = "forbidden",
+    justification = "Force push is forbidden (AGENTS.md Git rules); ask the user.",
+)
+
+prefix_rule(
+    pattern = ["git", "push", "-f"],
+    decision = "forbidden",
+    justification = "Force push is forbidden (AGENTS.md Git rules); ask the user.",
+)
+
+prefix_rule(
+    pattern = ["git", "push", "--force-with-lease"],
+    decision = "prompt",
+    justification = "--force-with-lease needs explicit user approval (AGENTS.md Git rules).",
+)
+
+prefix_rule(
+    pattern = ["git", "reset", "--hard"],
+    decision = "forbidden",
+    justification = "reset --hard destroys uncommitted work; ask the user before doing this.",
+)
+
+prefix_rule(
+    pattern = ["git", "clean", ["-f", "-fd", "-fdx", "--force"]],
+    decision = "forbidden",
+    justification = "git clean -f deletes untracked files; ask the user before doing this.",
+)
+
+prefix_rule(
+    pattern = ["git", "-C", ["memory", "./memory", "~/Nextcloud/memory", "/home/sven/Nextcloud/memory"]],
+    decision = "forbidden",
+    justification = "git inside the memory vault is reserved for the wiki-librarian agent.",
+)
+
+prefix_rule(
+    pattern = ["python3", ["memory/scripts/wiki_tool.py", "./memory/scripts/wiki_tool.py"]],
+    decision = "forbidden",
+    justification = "memory-vault scripts are reserved for the wiki-librarian agent.",
+)
+
+# Trusted everyday tools.
+# Most-restrictive-wins: the forbidden rules above still override these.
+prefix_rule(pattern = ["agent-browser"], decision = "allow", justification = "trusted tool")
+prefix_rule(pattern = ["firecrawl"], decision = "allow", justification = "trusted tool")
+prefix_rule(pattern = ["docker"], decision = "allow", justification = "trusted tool")
+prefix_rule(pattern = ["docker-compose"], decision = "allow", justification = "trusted tool")
+prefix_rule(pattern = ["npm"], decision = "allow", justification = "trusted tool")
+prefix_rule(pattern = ["npx"], decision = "allow", justification = "trusted tool")
+prefix_rule(pattern = ["node"], decision = "allow", justification = "trusted tool")
+prefix_rule(pattern = ["git"], decision = "allow", justification = "trusted tool")
+prefix_rule(pattern = ["gh"], decision = "allow", justification = "trusted tool")
+prefix_rule(pattern = ["python3"], decision = "allow", justification = "trusted tool")
+prefix_rule(pattern = ["rg"], decision = "allow", justification = "trusted tool")

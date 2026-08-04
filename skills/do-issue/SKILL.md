@@ -15,7 +15,7 @@ The tracker spec — where tickets live, the issue file format, the find-work co
 
 If the user named a ticket, use it. Otherwise grep the `ready-for-agent` queue and take the **lowest-numbered `NN-*.md`** whose `**Blocked by:**` is `None` or a ticket already marked `done`. The PRD is not a ticket — skip it.
 
-Stop and surface to the user — build nothing — if the ticket is not AFK (`**Triage:** ready-for-human`), a blocker is still open, or nothing qualifies.
+Stop and surface to the user — build nothing — if the ticket is not AFK (`**Triage:** ready-for-human`) or a blocker is still open. If **nothing qualifies** (no `ready-for-agent` ticket with all blockers satisfied), print exactly `<<<NO_OPEN_ISSUES>>>` and stop — nothing else (an autonomous merge loop reads this token to know the backlog is empty).
 
 ✓ **Done when:** one AFK issue file is chosen and every blocker it names is `done`.
 
@@ -27,9 +27,18 @@ The ticket's **Agent Brief** (or its *What to build* + *Acceptance criteria*) is
 
 ### 3. Branch
 
-Cut a `<type>/<desc>` branch off the up-to-date base, per the repo's git rules — never on `main`/`master`.
+Create a fresh `<type>/<desc>` branch **sourced from the latest `origin/main`** — never check out, pull, or commit on `main`/`master` itself. This is the **worktree-safe** rule: a git worktree refuses to check out a branch another worktree already holds, so branch *off* `main` (a ref you read) instead of *switching to* it (a branch you'd occupy). The same flow then runs identically in the primary checkout and in any worktree.
 
-✓ **Done when:** you are on a fresh branch off current base.
+```bash
+git fetch origin
+git switch --no-track -c <type>/<desc> origin/main
+```
+
+- **Never** run `git switch main` / `git checkout main` / `git pull` on `main` — it collides the instant another worktree has `main` checked out (an intermittent, hard-to-debug failure) and is unnecessary here.
+- `--no-track` stops the new branch adopting `main` as its upstream, so a later bare `git push` can't target `main`.
+- **Stacked PR** — only when this ticket genuinely needs an unmerged prior slice's code: source off that slice instead (`git switch --no-track -c <type>/<desc> origin/<slice-branch>`), note the dependency, and never let that base branch be deleted while this PR is open.
+
+✓ **Done when:** you are on a fresh branch created from `origin/main` (or, only if truly dependent, from the prior slice's branch) — and you never checked out `main` itself.
 
 ### 4. Build the tracer bullet
 
@@ -41,11 +50,20 @@ Implement the slice end-to-end through every layer it touches. Delegate to the f
 
 Discover the repo's quality gate first (`cat package.json`, `ls .github/workflows`), then run it — typecheck · lint · test · build. Check **each acceptance criterion by executing the actual check** (`verify`, `agent-browser`, `design-review`, a query, a request) — never by inspecting code or diffs. A criterion you cannot execute stays unchecked: report it as such, do not claim it.
 
+If this ticket adds a DB migration, apply it to **the current worktree's own database** before testing — each worktree runs a separate DB volume, so tests and runtime exercise that stack, not main's.
+
 ✓ **Done when:** the gate is green and every acceptance criterion was confirmed by a command you ran.
 
 ### 6. Open the PR
 
-`gh pr create` against the base. The body restates the slice, lists each acceptance criterion with its verified result, and references the ticket.
+Push the branch explicitly (it has no upstream after step 3's `--no-track`), then open the PR:
+
+```bash
+git push -u origin HEAD
+gh pr create --base main      # use --base <slice-branch> only for a stacked PR
+```
+
+The body restates the slice, lists each acceptance criterion with its verified result, and references the ticket.
 
 ✓ **Done when:** the PR exists and names the ticket.
 

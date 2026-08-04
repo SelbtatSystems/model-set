@@ -201,6 +201,16 @@ step "Config files"
 link() {
   local src="$1" dest="$2"
   [ -e "$src" ] || { warn "missing in repo: ${src#"$REPO_DIR"/}"; return; }
+
+  # On a machine still using the legacy whole-directory symlink, ~/.claude IS
+  # repo/global/claude, so dest and src are literally the same file. Linking
+  # would rename the real file to .backup and leave a symlink pointing at
+  # itself. Refuse, and say what to run instead.
+  if [ -e "$dest" ] && [ "$(readlink -f "$dest")" = "$(readlink -f "$src")" ] && [ ! -L "$dest" ]; then
+    warn "$dest is the repo file itself (legacy symlink layout) — run scripts/migrate-from-symlink.sh first"
+    return
+  fi
+
   mkdir -p "$(dirname "$dest")"
   if [ -L "$dest" ]; then
     [ "$(readlink -f "$dest")" = "$(readlink -f "$src")" ] && return 0
@@ -247,13 +257,17 @@ prune_host() {
   done
 }
 
+# Returns non-zero when it did not create the link, so callers don't count it.
 link_skill() {
   local host="$1" name="$2" src="$3"
   local dir="${HOST_SKILL_DIRS[$host]}"
   mkdir -p "$dir"
   local dest="$dir/$name"
   [ -L "$dest" ] && rm "$dest"
-  [ -e "$dest" ] && { warn "$dest is a real directory — left alone"; return; }
+  if [ -e "$dest" ]; then
+    warn "$dest is a real directory (legacy seeded copy) — left alone; run scripts/migrate-from-symlink.sh"
+    return 1
+  fi
   ln -s "$src" "$dest"
 }
 
@@ -276,8 +290,8 @@ while IFS= read -r set_name; do
     while IFS= read -r host; do
       [ -n "$host" ] || continue
       [ -n "${HOST_SKILL_DIRS[$host]:-}" ] || { warn "unknown host '$host' for $skill"; continue; }
-      link_skill "$host" "$skill" "${skill_path%/}"
-      linked_count[$host]=$(( linked_count[$host] + 1 ))
+      link_skill "$host" "$skill" "${skill_path%/}" \
+        && linked_count[$host]=$(( linked_count[$host] + 1 ))
     done <<< "$hosts"
   done
 done < <(jq -r '.sets | keys[]' "$SKILL_MANIFEST")
@@ -292,8 +306,8 @@ while IFS= read -r npm_skill; do
   fi
   while IFS= read -r host; do
     [ -n "${HOST_SKILL_DIRS[$host]:-}" ] || continue
-    link_skill "$host" "$npm_skill" "$pkg_dir"
-    linked_count[$host]=$(( linked_count[$host] + 1 ))
+    link_skill "$host" "$npm_skill" "$pkg_dir" \
+      && linked_count[$host]=$(( linked_count[$host] + 1 ))
   done < <(jq -r --arg s "$npm_skill" '.npmSkills[$s].hosts[]' "$SKILL_MANIFEST")
 done < <(jq -r '.npmSkills | keys[]' "$SKILL_MANIFEST")
 

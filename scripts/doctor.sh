@@ -62,15 +62,31 @@ else
       bad "$host: no skills directory at $dir"
       continue
     fi
-    total=0; broken=0
-    for link in "$dir"/*; do
-      [ -e "$link" ] || [ -L "$link" ] || continue
-      total=$((total + 1))
-      [ -e "$link" ] || { broken=$((broken + 1)); }
+    # Counting entries is not enough: a legacy seeded copy is a real directory
+    # that exists, reads correctly and works — and silently is not the repo
+    # file, so edits to it never reach git. Only a symlink proves the farm was
+    # generated. Symlink targets are not pinned to the repo, because npm-
+    # delivered skills legitimately point at ~/.npm-global.
+    total=0; broken=0; copies=()
+    for entry in "$dir"/*; do
+      [ -e "$entry" ] || [ -L "$entry" ] || continue
+      if [ -L "$entry" ]; then
+        total=$((total + 1))
+        [ -e "$entry" ] || broken=$((broken + 1))
+      elif [ -d "$entry" ]; then
+        copies+=("$(basename "$entry")")
+      fi
     done
+    if [ "${#copies[@]}" -gt 0 ]; then
+      bad "$host: ${#copies[@]} skill(s) are real directories, not symlinks — edits there never reach the repo"
+      printf '        %s%s\n' "$(printf '%s ' "${copies[@]:0:4}")" "$([ "${#copies[@]}" -gt 4 ] && printf '+%d more' $(( ${#copies[@]} - 4 )))"
+      printf '        delete them, then re-run setup.sh — it refuses to link over a real directory\n'
+    fi
     if [ "$broken" -gt 0 ]; then
       bad "$host: $broken of $total skill links are dangling"
-    else
+    elif [ "$total" -eq 0 ] && [ "${#copies[@]}" -eq 0 ]; then
+      bad "$host: no skills linked at $dir"
+    elif [ "$total" -gt 0 ]; then
       ok "$host: $total skills linked"
     fi
   done
@@ -79,7 +95,8 @@ else
   # exists to prevent, so check it explicitly rather than trusting the loop above.
   while IFS= read -r key; do
     skill="${key##*/}"
-    if [ -e "${HOST_SKILL_DIRS[opencode]}/$skill" ]; then
+    # -L as well as -e: a dangling link is still a leak, and -e alone can't see it.
+    if [ -e "${HOST_SKILL_DIRS[opencode]}/$skill" ] || [ -L "${HOST_SKILL_DIRS[opencode]}/$skill" ]; then
       bad "codex-only skill '$skill' is visible to OpenCode"
     else
       ok "codex-only '$skill' correctly absent from OpenCode"

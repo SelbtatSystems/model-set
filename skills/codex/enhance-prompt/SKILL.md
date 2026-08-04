@@ -1,7 +1,6 @@
 ---
 name: enhance-prompt
 description: Turn a rough UI idea, an existing page, or a reference screenshot into a precise, build-ready prompt for a coding agent to implement a page in this repo. Works with frontend-design (aesthetic direction), web-design-guidelines (quality floor), and DESIGN.md (project design language).
-allowed-tools: Read Write Grep Glob WebFetch Bash
 ---
 
 # Enhance Prompt — Frontend Build Prompt

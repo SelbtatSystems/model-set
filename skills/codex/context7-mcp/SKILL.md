@@ -29,18 +29,16 @@ or standalone scripts with no third-party dependency.
 
 **1. Resolve the ID** (skip if you already know it) — turns a name into `/org/project[/version]`:
 
-```
-mcp__context7__resolve-library-id libraryName:"stripe"
-```
+Call the `resolve-library-id` tool on the **context7** MCP server, passing the package name as
+`libraryName` — e.g. `libraryName: "stripe"`.
 
 Returns ranked matches (trust score + coverage); pick the one matching the package you use.
 Ambiguous? Inspect matches rather than guess — a wrong ID returns "documentation not found".
 
 **2. Fetch the docs:**
 
-```
-mcp__context7__query-docs libraryId:"/stripe/stripe-node" topic:"subscriptions"
-```
+Call the `query-docs` tool on the **context7** MCP server — e.g. `libraryId: "/stripe/stripe-node"`,
+`topic: "subscriptions"`.
 
 - `libraryId` (required) — exact ID from step 1.
 - `topic` — always set it (`"webhooks"`, `"routing"`, `"migrations"`); un-topic'd fetches
@@ -82,5 +80,5 @@ Two tool surfaces exist; adjust the calls above to match yours:
 - Narrowing arg is `topic:` on most installs; the newest platform interface uses `query:`
   (a natural-language question). Use whichever yours exposes.
 
-If names differ, update the `mcp__context7__*` calls and fetch arg throughout — the rest
+If names differ, update the context7 tool names and fetch arg throughout — the rest
 (resolve → fetch, pinning, topic-narrowing, versioning) is unchanged.

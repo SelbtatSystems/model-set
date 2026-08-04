@@ -1,0 +1,52 @@
+name: lint
+
+# Keeps the phase-2 result from rotting. lint-skills.sh went green on
+# 2026-08-04; without a gate the next Claude-dialect skill copied into
+# skills/codex/ would silently undo that.
+#
+# doctor.sh is deliberately not run here: it checks installed CLIs, resolved
+# symlinks in $HOME and live OAuth sessions, none of which exist on a runner.
+# It is a "did this machine install correctly" tool, not a repo check.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  skills-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # jq is preinstalled on ubuntu-latest, but lint-skills.sh exits 2 without
+      # it, which would read as a lint failure rather than a missing tool.
+      - name: Check jq is present
+        run: jq --version
+
+      - name: Skills contract lint
+        run: ./scripts/lint-skills.sh
+
+  shell-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse every script
+        run: |
+          st=0
+          while IFS= read -r f; do
+            bash -n "$f" || { echo "syntax error: $f"; st=1; }
+          done < <(find scripts -name '*.sh' -type f)
+          exit $st
+
+      # -S error only. The scripts carry pre-existing info/warning findings that
+      # are mostly false positives here: SC2034 on the manifest arrays (consumed
+      # by whoever sources the file) and SC2088 on tildes that are grep patterns
+      # matching skill prose, not paths. Gating on those would mean rewriting
+      # working scripts to satisfy the linter. Errors are real breakage.
+      - name: Shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y shellcheck
+          shellcheck -S error scripts/*.sh scripts/lib/*.sh

@@ -1,206 +1,86 @@
-#!/bin/bash
-# Apply local configs to a project
-# Usage: ./scripts/apply-local.sh /path/to/project [--tool claude|gemini|opencode]
-
-set -e
+#!/usr/bin/env bash
+# Apply model-set project-level config to a repo.
+#
+#   ./scripts/apply-local.sh /path/to/project [--tool claude|codex|opencode] ...
+#
+# With no --tool, all three are applied. Existing files are never overwritten.
+#
+# Global config (settings, skills, the context7/aiguide MCP servers) comes from
+# setup.sh and is already active everywhere. This adds only what is genuinely
+# per-project: the context file each agent reads, and the postgres MCP server,
+# whose connection string belongs to the project rather than to model-set.
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
-# Parse arguments
 PROJECT_DIR=""
-TOOL="claude"
+TOOLS=()
 
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --tool)
-            TOOL="$2"
-            shift 2
-            ;;
-        *)
-            PROJECT_DIR="$1"
-            shift
-            ;;
-    esac
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --tool) TOOLS+=("$2"); shift 2 ;;
+    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+    *) PROJECT_DIR="$1"; shift ;;
+  esac
 done
 
-if [ -z "$PROJECT_DIR" ]; then
-    echo "Usage: $0 /path/to/project [--tool claude|gemini|opencode]"
-    echo ""
-    echo "Options:"
-    echo "  --tool    Which tool config to apply (default: claude)"
-    echo ""
-    echo "Examples:"
-    echo "  $0 ./my-project"
-    echo "  $0 ./my-project --tool gemini"
-    exit 1
-fi
+[ -n "$PROJECT_DIR" ] || { echo "usage: $0 /path/to/project [--tool claude|codex|opencode]" >&2; exit 2; }
+[ -d "$PROJECT_DIR" ] || { echo "no such directory: $PROJECT_DIR" >&2; exit 2; }
+PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
+[ ${#TOOLS[@]} -gt 0 ] || TOOLS=(claude codex opencode)
 
-# Resolve to absolute path
-PROJECT_DIR="$(cd "$PROJECT_DIR" 2>/dev/null && pwd)" || {
-    echo "Error: Project directory does not exist: $PROJECT_DIR"
-    exit 1
+ok()   { printf '  ok    %s\n' "$*"; }
+skip() { printf '  skip  %s (exists)\n' "$*"; }
+
+# Copy only if absent — this script must be safe to re-run on a live project.
+copy_once() {
+  local src="$1" dest="$2" label="$3"
+  [ -f "$src" ] || return 0
+  if [ -e "$dest" ]; then
+    skip "$label"
+  else
+    mkdir -p "$(dirname "$dest")"
+    cp "$src" "$dest"
+    ok "$label"
+  fi
 }
 
-echo "Applying $TOOL config to: $PROJECT_DIR"
-echo ""
+echo "Applying to $PROJECT_DIR"
 
-# =====================================================
-# 1. Copy tool-specific configs
-# =====================================================
-case $TOOL in
+for tool in "${TOOLS[@]}"; do
+  case "$tool" in
     claude)
-        LOCAL_DIR="$REPO_DIR/local/claude"
-        CONTEXT_FILE="CLAUDE.md"
-        CONTEXT_TEMPLATE="$LOCAL_DIR/CLAUDE.md.template"
-        MCP_TEMPLATE="$LOCAL_DIR/.mcp.json.template"
-
-        # Create .claude directory
-        mkdir -p "$PROJECT_DIR/.claude"
-
-        # Copy context file if it doesn't exist
-        if [ ! -f "$PROJECT_DIR/$CONTEXT_FILE" ]; then
-            cp "$CONTEXT_TEMPLATE" "$PROJECT_DIR/$CONTEXT_FILE"
-            echo "  Created $CONTEXT_FILE"
-        else
-            echo "  $CONTEXT_FILE already exists (skipped)"
-        fi
-
-        # Copy MCP template
-        if [ -f "$MCP_TEMPLATE" ]; then
-            cp "$MCP_TEMPLATE" "$PROJECT_DIR/.mcp.json.template"
-            echo "  Created .mcp.json.template"
-        fi
-        ;;
-
-    gemini)
-        LOCAL_DIR="$REPO_DIR/local/gemini"
-        CONTEXT_FILE="GEMINI.md"
-        CONTEXT_TEMPLATE="$LOCAL_DIR/GEMINI.md.template"
-
-        # Create .gemini directory
-        mkdir -p "$PROJECT_DIR/.gemini"
-
-        # Copy context file if it doesn't exist
-        if [ ! -f "$PROJECT_DIR/$CONTEXT_FILE" ]; then
-            cp "$CONTEXT_TEMPLATE" "$PROJECT_DIR/$CONTEXT_FILE"
-            echo "  Created $CONTEXT_FILE"
-        else
-            echo "  $CONTEXT_FILE already exists (skipped)"
-        fi
-        ;;
-
-    opencode)
-        LOCAL_DIR="$REPO_DIR/local/opencode"
-        CONTEXT_FILE="AGENT.md"
-        CONTEXT_TEMPLATE="$LOCAL_DIR/AGENT.md.template"
-
-        # Create .opencode directory
-        mkdir -p "$PROJECT_DIR/.opencode"
-
-        # Copy context file if it doesn't exist
-        if [ ! -f "$PROJECT_DIR/$CONTEXT_FILE" ]; then
-            cp "$CONTEXT_TEMPLATE" "$PROJECT_DIR/$CONTEXT_FILE"
-            echo "  Created $CONTEXT_FILE"
-        else
-            echo "  $CONTEXT_FILE already exists (skipped)"
-        fi
-        ;;
-
+      copy_once "$REPO_DIR/local/claude/CLAUDE.md.template" "$PROJECT_DIR/CLAUDE.md" "CLAUDE.md"
+      copy_once "$REPO_DIR/local/claude/.mcp.json.template" "$PROJECT_DIR/.mcp.json" ".mcp.json (postgres)"
+      ;;
     codex)
-        LOCAL_DIR="$REPO_DIR/local/codex"
-        CONTEXT_FILE="AGENTS.md"
-        CONTEXT_TEMPLATE="$LOCAL_DIR/AGENTS.md.template"
-
-        # Create .codex directory
-        mkdir -p "$PROJECT_DIR/.codex"
-
-        # Copy AGENTS.md to project root if it doesn't exist
-        if [ ! -f "$PROJECT_DIR/$CONTEXT_FILE" ]; then
-            cp "$CONTEXT_TEMPLATE" "$PROJECT_DIR/$CONTEXT_FILE"
-            echo "  Created $CONTEXT_FILE"
-        else
-            echo "  $CONTEXT_FILE already exists (skipped)"
-        fi
-        ;;
-
+      copy_once "$REPO_DIR/local/codex/AGENTS.md.template" "$PROJECT_DIR/AGENTS.md" "AGENTS.md"
+      ;;
+    opencode)
+      # OpenCode reads AGENTS.md at the project root — the same file Codex uses.
+      copy_once "$REPO_DIR/local/codex/AGENTS.md.template" "$PROJECT_DIR/AGENTS.md" "AGENTS.md (shared with codex)"
+      ;;
     *)
-        echo "Error: Unknown tool: $TOOL"
-        echo "Supported tools: claude, gemini, opencode, codex"
-        exit 1
-        ;;
-esac
+      echo "unknown tool: $tool" >&2; exit 2 ;;
+  esac
+done
 
-# =====================================================
-# 2. Copy ralph directory
-# =====================================================
-RALPH_SRC="$REPO_DIR/ralph"
-RALPH_DST="$PROJECT_DIR/ralph"
+# The postgres MCP reads POSTGRES_DATABASE_URI from the environment; .mcp.json
+# references it rather than embedding it, so the secret stays in the project.
+if [ -f "$PROJECT_DIR/.mcp.json" ] && ! grep -q "POSTGRES_DATABASE_URI" "$PROJECT_DIR/.env" 2>/dev/null; then
+  cat >> "$PROJECT_DIR/.env" <<'EOF'
 
-if [ ! -d "$RALPH_DST" ]; then
-    mkdir -p "$RALPH_DST"
-    cp "$RALPH_SRC/prompt.md" "$RALPH_DST/"
-    cp "$RALPH_SRC/ralph.sh" "$RALPH_DST/"
-    chmod +x "$RALPH_DST/ralph.sh"
-
-    # Create empty prd.json template
-    cat > "$RALPH_DST/prd.json" << 'EOF'
-{
-  "projectName": "Your Project",
-  "branchName": "ralph/feature-name",
-  "userStories": [
-    {
-      "id": "US-001",
-      "title": "Example Story",
-      "description": "As a user, I want to...",
-      "acceptanceCriteria": [
-        "Criterion 1",
-        "Criterion 2"
-      ],
-      "priority": 1,
-      "passes": false
-    }
-  ]
-}
-EOF
-
-    # Create empty progress.txt
-    echo "# Ralph Progress Log" > "$RALPH_DST/progress.txt"
-    echo "Started: $(date)" >> "$RALPH_DST/progress.txt"
-    echo "---" >> "$RALPH_DST/progress.txt"
-
-    echo "  Created ralph/ directory"
-else
-    echo "  ralph/ already exists (skipped)"
-fi
-
-# =====================================================
-# 3. Create project .env template
-# =====================================================
-if [ ! -f "$PROJECT_DIR/.env.local.example" ]; then
-    cat > "$PROJECT_DIR/.env.local.example" << 'EOF'
-# Project-specific environment variables
-# Copy to .env.local and fill in your values
-
-# Database
+# Consumed by the postgres MCP server in .mcp.json
 POSTGRES_DATABASE_URI=postgresql://user:password@localhost:5432/dbname
-
-# Redis (if using)
-REDIS_URL=redis://:password@localhost:6379/0
 EOF
-    echo "  Created .env.local.example"
+  ok "appended POSTGRES_DATABASE_URI placeholder to .env"
 fi
 
-echo ""
-echo "Applied $TOOL config to $PROJECT_DIR"
-echo "  Copied ralph/ to $PROJECT_DIR/ralph"
-if [ "$TOOL" = "claude" ]; then
-    echo "  Created .mcp.json template"
-fi
-echo ""
-echo "Next steps:"
-echo "  1. Edit $PROJECT_DIR/$CONTEXT_FILE with project-specific info"
-echo "  2. Edit $PROJECT_DIR/ralph/prd.json with user stories"
-if [ "$TOOL" = "claude" ]; then
-    echo "  3. Copy .mcp.json.template to .mcp.json and fill in credentials"
-fi
+cat <<EOF
+
+Next:
+  1. Set POSTGRES_DATABASE_URI in $PROJECT_DIR/.env
+  2. Set the docker network name in .mcp.json (currently 'your-docker-network')
+  3. Make sure .env is gitignored in the project
+EOF

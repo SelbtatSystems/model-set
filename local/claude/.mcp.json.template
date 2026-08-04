@@ -1,4 +1,15 @@
 {
+  "_comment": [
+    "Project-scoped MCP servers. Copied verbatim by scripts/apply-local.sh — no",
+    "substitution: Claude Code expands ${VAR} from the environment at runtime, so",
+    "no secret is ever written into a generated file.",
+    "",
+    "Set POSTGRES_DATABASE_URI in the PROJECT's .env, not model-set's. The global",
+    "servers (context7, aiguide) are registered at user scope by setup.sh and are",
+    "available here without being listed.",
+    "",
+    "Replace 'your-docker-network' with the project's compose network."
+  ],
   "mcpServers": {
     "postgres": {
       "command": "docker",
@@ -12,13 +23,6 @@
       "env": {
         "DATABASE_URI": "${POSTGRES_DATABASE_URI}"
       }
-    },
-    "redis": {
-      "command": "cmd",
-      "args": [
-        "/c", "uvx", "--from", "redis-mcp-server@latest",
-        "redis-mcp-server", "--url", "${REDIS_URL}"
-      ]
     }
   }
 }

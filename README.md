@@ -1,262 +1,165 @@
 # model-set
 
-Centralized configuration for AI coding assistants: Claude Code, Gemini CLI, OpenCode, and OpenAI Codex CLI.
+Portable configuration for Claude Code, Codex CLI and OpenCode — clone it onto a
+machine, run one script, get a working setup with per-agent skill sets.
 
-## Quick Start
+Design rationale, including why the previous layout couldn't do this, is in
+[PLAN.md](PLAN.md).
 
-### New Machine Setup
+## Setup
 
 ```bash
-# Clone the repo
 git clone https://github.com/SelbtatSystems/model-set.git ~/model-set
 cd ~/model-set
 
-# Copy and fill in your API keys
-cp .env.example .env
-code .env
+cp .env.example .env && $EDITOR .env      # three API keys
 
-# Run setup (macOS/Linux)
 ./scripts/setup.sh
-
-# Run setup (Windows)
-.\scripts\setup.ps1
 ```
 
-The setup script will:
-1. Auto-install Python 3 and Node.js/npm if not found (via supported package managers; Python also has a direct-download fallback on Windows)
-2. Install/update CLI tools (Claude Code, Gemini CLI, OpenCode, Codex CLI, agent-browser), install the agent-browser browser runtime, sync the upstream agent-browser skill, and install the Warp plugin for Claude Code (`warpdotdev/claude-code-warp`)
-3. Config for `~/.claude`, `~/.gemini`, `~/.opencode`, `~/.codex`:
-   - **New machine** (dir doesn't exist): full symlink → `repo/global/<tool>/`
-   - **Existing machine** (real dir exists): left untouched
-   - Each tool's `skills/` is seeded once from `repo/skills/` and then owned by that tool — an existing skills directory is never overwritten
-4. Install the Stitch extension for Gemini CLI with API key auth (`STITCH_API_KEY`)
-5. Generate `~/.mcp.json` from template (skipped if file already exists) and `~/.codex/config.toml`
-
-### Uninstall
+Then log in — setup can't do this for you, all three agents use OAuth:
 
 ```bash
-# macOS/Linux
-./scripts/uninstall.sh
-
-# Windows
-.\scripts\uninstall.ps1
-
-# Skip confirmation prompts
-./scripts/uninstall.sh --force
-.\scripts\uninstall.ps1 -Force
+claude                 # then /login
+codex login
+opencode auth login
 ```
 
-The uninstall script reverses everything setup did: removes symlinks (restoring any `.backup` files), deletes generated configs (`~/.mcp.json`, `config.toml`), removes MCP servers, removes the Warp plugin + marketplace, uninstalls CLI tools, and cleans up the screenshots directory. Local project folders (`.claude/`, `ralph/`, etc.) are only removed if you confirm a separate prompt.
-
-### Making Scripts Executable
-
-On macOS/Linux, you may need to make the scripts executable before first run:
+Verify:
 
 ```bash
-chmod +x scripts/*.sh
+./scripts/doctor.sh
 ```
 
-### Apply to a Project
+### Flags
+
+| Flag | Effect |
+|---|---|
+| `--with-ollama` | Install Ollama (off by default — multi-GB local model runtime) |
+| `--with-obsidian` | Install the Obsidian CLI (off by default — needs a vault) |
+| `--no-sogni` | Skip the Sogni image/video/music skill |
+| `--force` | Replace existing config files instead of skipping them |
+
+### Migrating from the old layout
+
+If this repo previously symlinked your whole config directories
+(`~/.claude -> global/claude`), run the one-time migration **with all agents
+closed**:
 
 ```bash
-# Apply config + ralph to a project
-./scripts/apply-local.sh ./my-project --tool claude
-
-# Or on Windows
-.\scripts\apply-local.ps1 -ProjectDir .\my-project -Tool claude
+./scripts/migrate-from-symlink.sh --dry-run   # inspect first
+./scripts/migrate-from-symlink.sh
+./scripts/setup.sh
 ```
 
-## Directory Structure
+A fresh clone never needs this.
 
-```
-model-set/
-├── skills/               # Skill source — each AI tool is seeded a copy, then owns it
-│   ├── agent-browser/    # Browser testing skill + screenshot storage
-│   ├── composition-patterns/   # React composition patterns
-│   ├── design-md/        # Generate design documents
-│   ├── enhance-prompt/   # Improve prompts for Stitch
-│   ├── page-redesign/    # Redesign pages via Stitch
-│   ├── ralph-plan/       # Sprint planning from PRDs
-│   ├── react-best-practices/   # React/Next.js performance (Vercel)
-│   ├── react-components/ # Generate React components via Stitch
-│   ├── react-native-skills/    # React Native/Expo best practices (Vercel)
-│   ├── senior-backend/   # Backend dev (Node, Go, Python, Postgres, GraphQL)
-│   ├── skill-creator/    # Create and package new skills (requires Python 3)
-│   ├── stitch-loop/      # Iterative Stitch design workflow
-│   ├── web-design-guidelines/  # UI/accessibility compliance (Vercel)
-│   └── .system/          # Skill installer utilities (requires Python 3)
-├── global/               # Symlinked to ~/
-│   ├── claude/           # → ~/.claude
-│   ├── codex/            # → ~/.codex
-│   ├── gemini/           # → ~/.gemini
-│   ├── opencode/         # → ~/.opencode
-│   └── mcp/              # MCP templates
-├── local/                # Project templates (copied, not symlinked)
-│   ├── claude/
-│   ├── codex/
-│   ├── gemini/
-│   └── opencode/
-├── scripts/              # Setup & uninstall scripts
-└── local/ralph/          # Autonomous coding agent templates
-```
+## How it works
+
+**File ownership.** The repo owns individual files, listed in
+`scripts/lib/manifest.sh`, and symlinks each into whatever location its tool
+expects. Config directories stay owned by the tools, so sqlite databases,
+session logs and credentials never enter the repo.
+
+Anything not on the manifest does not travel to a new machine.
+
+**No generated config.** All three tools expand environment variables natively
+(`${VAR}` for Claude, `env_vars` for Codex, `{env:VAR}` for OpenCode), so configs
+are plain tracked files. No templates, no substitution, no secrets baked into
+generated output, nothing that can go stale on re-run.
 
 ## Skills
 
-`skills/` is the tracked source. Every AI tool gets its **own** skills directory,
-seeded from it on first setup and independent from then on — each agent's skill set
-can diverge freely:
+Three sets, three different rules — see [skills/CONTRACT.md](skills/CONTRACT.md).
 
-```
-skills/  ──seed──▶  ~/.claude/skills     (own copy, gitignored)
-                    ~/.gemini/skills     (own copy, gitignored)
-                    ~/.opencode/skills   (own copy, gitignored)
-                    ~/.codex/skills      (own copy, gitignored)
-```
+| Set | Consumers | Dialect |
+|---|---|---|
+| `skills/claude/` | Claude Code | Claude-native |
+| `skills/codex/` | Codex **and** OpenCode | GPT |
+| `skills/external/` | all three | upstream's — never edit |
 
-Setup never overwrites a skills directory that already exists. To push a change from
-`skills/` out to a tool, copy it across deliberately.
+The Claude and Codex sets are independent and hand-authored. The same skill is
+written differently in each, because Claude handles latitude and prose framing
+well while GPT-class models follow explicit numbered procedure more reliably.
 
-### Available Skills
+`skills/manifest.json` declares routing policy; membership comes from globbing
+the directories, so it can't drift from what's on disk. Each host's skills
+directory is a farm of per-skill symlinks back into the repo — so editing
+`~/.claude/skills/tdd/SKILL.md` *is* editing the tracked file. Edit in place,
+`git diff` shows it.
 
-| Skill | Description |
-|-------|-------------|
-| `agent-browser` | Browser automation for visual testing after frontend changes |
-| `composition-patterns` | React composition patterns (compound components, context, render props) |
-| `design-md` | Analyze Stitch projects and generate DESIGN.md |
-| `enhance-prompt` | Transform vague UI ideas into polished Stitch prompts |
-| `page-redesign` | Redesign existing pages via Stitch generation |
-| `ralph-plan` | Create sprint plans from PRD files |
-| `react-best-practices` | React/Next.js performance optimization (Vercel Engineering) |
-| `react-components` | Generate React components from Stitch designs |
-| `react-native-skills` | React Native and Expo best practices (Vercel Engineering) |
-| `senior-backend` | Backend APIs, DB optimization, security — Node.js, Go, Python, Postgres, GraphQL ¹ |
-| `skill-creator` | Create, package, and validate new Claude Code skills ¹ |
-| `stitch-loop` | Iterative website building with Stitch |
-| `web-design-guidelines` | Review UI for Web Interface Guidelines compliance |
-
-¹ Scripts in these skills require **Python 3** on your `PATH`.
-
-### Adding New Skills
+A skill can be marked Codex-only in the manifest; it then gets the full Codex
+stack (`codex review`, `~/.codex/agents/`, `~/.codex/prompts/`) and is never
+linked into OpenCode. `do-pr` is the current example.
 
 ```bash
-# Install from GitHub (e.g. from vercel-labs/agent-skills)
-cd skills/.system/skill-installer/scripts
-python3 install-skill-from-github.py --repo vercel-labs/agent-skills --path skills/your-skill
-
-# Or create manually
-mkdir skills/your-skill
-# Add SKILL.md with YAML front matter:
-# ---
-# name: your-skill
-# description: What it does and when to use it
-# allowed-tools: Bash Read Write
-# ---
+./scripts/lint-skills.sh              # enforce the contract
+./scripts/lint-skills.sh --worklist   # machine-readable violations
 ```
 
-### agent-browser
+**External skills** come from elsewhere and are exempt from the lint. Two kinds:
+npm-delivered (Sogni — symlinked straight from the global install, so
+`npm update -g` takes effect) and repo-synced (`agent-browser`,
+`react-best-practices`, `react-native-skills`, `composition-patterns`,
+`frontend-design`, `nodejs-backend-patterns`, `skill-creator` — vendored in
+`skills/external/`, tracked by `skills-lock.json`).
 
-Browser automation CLI for visual testing. Screenshots save to `skills/agent-browser/screenshots/`.
+## MCP servers
+
+| Scope | Servers | Delivery |
+|---|---|---|
+| Global | `context7`, `aiguide` | Claude: registered by setup at user scope · Codex: `config.toml` · OpenCode: `opencode.json` |
+| Project | `postgres` | `apply-local.sh` writes the project's `.mcp.json` |
+
+Claude's global MCP is the one imperative step — `~/.claude.json` holds runtime
+state and can't be a symlink, so setup runs `claude mcp add -s user`.
+
+`DATABASE_URI` for postgres belongs to the project's own `.env`, never to
+model-set's.
+
+## Per-project setup
 
 ```bash
-agent-browser skills get core       # Load current usage docs for the installed CLI
-agent-browser open http://localhost:3000/path
-agent-browser snapshot -i          # Get interactive elements with refs
-agent-browser screenshot ~/model-set/skills/agent-browser/screenshots/test.png
-agent-browser click @e1            # Interact by ref
-agent-browser close
+./scripts/apply-local.sh /path/to/project
 ```
 
-## MCP Servers
+Writes `CLAUDE.md`, `AGENTS.md` and a postgres `.mcp.json`. Never overwrites
+existing files.
 
-### Global MCPs (always available)
-| Server | Purpose |
-|--------|---------|
-| context7 | Documentation lookup and code context |
-| aiguide | PostgreSQL/TimescaleDB documentation search |
+## Environment
 
-### Local MCPs (per-project)
-| Server | Purpose |
-|--------|---------|
-| postgres | Database queries and schema management |
-| redis | Cache operations |
+`.env` holds secrets only — `CONTEXT7_API_KEY`, `FIRECRAWL_API_KEY`,
+`SOGNI_API_KEY`. It's gitignored; fill it by hand on each machine from
+`.env.example`.
 
-## Stitch (Gemini CLI Extension)
+Behaviour flags live in `setup.sh` so they're tracked in git. Setup appends a
+block to your shell rc that sources `.env` and exports
+`OPENCODE_DISABLE_CLAUDE_CODE_SKILLS` / `OPENCODE_DISABLE_EXTERNAL_SKILLS` —
+without those, OpenCode would also read the Claude skill set.
 
-The Stitch extension is installed at `~/.gemini/extensions/Stitch/` and configured via `STITCH_API_KEY` in `.env`. The setup script handles installation and API key configuration automatically.
+## Scripts
 
-```bash
-# Manual install if needed
-gemini extensions install https://github.com/gemini-cli-extensions/stitch --auto-update
-```
-
-`gemini-extension.json` is generated at setup time from the API key template and is not tracked in git.
-
-## Global vs Local Configs
-
-### Global (Symlinked)
-- Settings, permissions, themes (full symlink on new machine; existing dirs left untouched)
-- Skills (`skills/`) — seeded per tool, not linked; each tool owns its copy
-- MCP servers that apply everywhere (context7, aiguide)
-
-### Local (Copied per-project)
-- CLAUDE.md / GEMINI.md / AGENT.md / AGENTS.md context files
-- Project-specific MCP servers (postgres, redis)
-- Ralph autonomous agent
-
-## Codex CLI Notes
-
-- **Global config**: `~/.codex/config.toml` (TOML format, generated from template)
-- **Global instructions**: `~/.codex/AGENTS.md`
-- **Project instructions**: `AGENTS.md` at project root
-- **Auth**: Run `codex login` for OAuth, or set `OPENAI_API_KEY` for API key auth
-- **MCP**: Configured in `config.toml` `[mcp_servers.*]` sections
-
-## Ralph (Autonomous Agent)
-
-Ralph is an autonomous coding agent that works through user stories in a loop.
-
-### Usage
-1. Edit `ralph/plan.md` with your tasks
-2. Run with your preferred tool:
-```bash
-bash ralph/claude_ralph.sh    # Claude Code
-bash ralph/gemini_ralph.sh    # Gemini CLI
-bash ralph/opencode_ralph.sh  # OpenCode
-bash ralph/codex_ralph.sh     # Codex CLI
-```
-3. Ralph picks the highest priority incomplete story, implements it, runs quality checks, commits, and repeats.
-
-## Updating
-
-```bash
-cd ~/model-set
-git pull
-./scripts/setup.sh  # Re-run to update symlinks and regenerate configs
-```
+| Script | Purpose |
+|---|---|
+| `setup.sh` | Install CLIs, link config and skills, register MCP |
+| `doctor.sh` | Verify an install; non-zero exit on failure |
+| `lint-skills.sh` | Enforce `skills/CONTRACT.md` |
+| `apply-local.sh` | Apply project-level config to a repo |
+| `migrate-from-symlink.sh` | One-time migration off the old layout |
+| `uninstall.sh` | Remove links and shell block (`--purge-tools` for CLIs) |
+| `claude-update.sh` | Update Claude Code with resume + checksum, no download deadline |
 
 ## Troubleshooting
 
-### Symlinks not working on Windows
-Run PowerShell as Administrator, or enable Developer Mode in Windows Settings.
+**OpenCode sees Claude's skills** — the env flags aren't exported in that shell.
+Open a new shell, or `source ~/.zshrc`.
 
-### MCP servers not connecting
-1. Check `.env` has correct API keys
-2. If `~/.mcp.json` is missing, re-run setup to generate it
-3. If `~/.mcp.json` exists but is stale, delete it and re-run setup
-4. Restart the CLI tool
+**agent-browser won't launch** — containers and hardened kernels have no usable
+sandbox. Setup detects this and writes `--no-sandbox` to
+`~/.agent-browser/config.json`. Check with `agent-browser doctor`.
 
-### Skills not appearing
-Verify symlinks exist:
-```bash
-ls -la ~/.claude/skills  # Should point to model-set/skills/
-```
+**MCP servers missing in a project** — global servers are registered at user
+scope; run `claude mcp list`. Project servers need `apply-local.sh`.
 
-### Stitch extension not working in Gemini CLI
-Re-run setup — it will regenerate `gemini-extension.json` with your `STITCH_API_KEY`.
-
-### Skill scripts failing with "python3 not found"
-The setup script auto-installs Python 3, but if you're running a skill script manually:
-- **macOS**: `brew install python3`
-- **Ubuntu/Debian**: `sudo apt install python3`
-- **Windows**: `winget install Python.Python.3 --silent` then open a new terminal
-- **All platforms**: https://www.python.org/downloads/
+**A skill isn't showing up** — `./scripts/doctor.sh` reports dangling links.
+Codex-only skills are deliberately absent from OpenCode.

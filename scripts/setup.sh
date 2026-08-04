@@ -1,825 +1,396 @@
-#!/bin/bash
-# model-set Setup Script for Unix (macOS/Linux)
-# Usage: ./scripts/setup.sh
-
-set -e
+#!/usr/bin/env bash
+# model-set setup — Linux/macOS.
+#
+#   ./scripts/setup.sh [--with-ollama] [--with-obsidian] [--no-sogni] [--force]
+#
+# Installs the agent CLIs and tool CLIs, then links this repo's config files and
+# skill sets into place. Idempotent: safe to re-run after `git pull`.
+#
+# Design notes live in PLAN.md. The two that matter when reading this script:
+#
+#   * File ownership, not directory ownership. We never symlink a whole config
+#     directory — the tools own those, and their runtime state must stay out of
+#     the repo. scripts/lib/manifest.sh lists every file we place.
+#
+#   * No template substitution. Claude, Codex and OpenCode all expand env vars
+#     natively, so configs are plain tracked files and secrets are never baked
+#     into generated output. Nothing here can go stale on re-run.
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
-HOME_DIR="$HOME"
-CURRENT_DIR="$(pwd)"
-
-ensure_path_entry() {
-    local entry="$1"
-    case ":$PATH:" in
-        *":$entry:"*) ;;
-        *)
-            export PATH="$entry:$PATH"
-            hash -r 2>/dev/null || true
-            ;;
-    esac
-}
-
-persist_user_local_bin_path() {
-    persist_path_entry "$HOME/.local/bin"
-}
-
-persist_path_entry() {
-    local entry="$1"
-    local shell_name rc_file path_line rc_entry
-
-    shell_name="$(basename "${SHELL:-bash}")"
-    case "$shell_name" in
-        zsh) rc_file="$HOME/.zshrc" ;;
-        fish) rc_file="" ;;
-        *) rc_file="$HOME/.bashrc" ;;
-    esac
-
-    if [ -z "$rc_file" ]; then
-        echo "    Note: add $entry to your shell PATH manually."
-        return 0
-    fi
-
-    rc_entry="$entry"
-    local home_prefix="$HOME/"
-    if [[ "$entry" == "$home_prefix"* ]]; then
-        rc_entry="\$HOME/${entry#"$home_prefix"}"
-    fi
-
-    path_line="export PATH=\"$rc_entry:\$PATH\""
-    if [ -f "$rc_file" ] && grep -Fqx "$path_line" "$rc_file"; then
-        return 0
-    fi
-
-    printf '\n%s\n' "$path_line" >> "$rc_file"
-    echo "    Added $entry to PATH in $rc_file"
-}
-
-persist_model_set_env() {
-    local shell_name rc_file marker
-
-    shell_name="$(basename "${SHELL:-bash}")"
-    case "$shell_name" in
-        zsh) rc_file="$HOME/.zshrc" ;;
-        fish) rc_file="" ;;
-        *) rc_file="$HOME/.bashrc" ;;
-    esac
-
-    if [ -z "$rc_file" ]; then
-        echo "    Note: source $REPO_DIR/.env manually before launching Codex."
-        return 0
-    fi
-
-    marker="# model-set MCP/API env for Codex and other local CLIs."
-    if [ -f "$rc_file" ] && grep -Fqx "$marker" "$rc_file"; then
-        return 0
-    fi
-
-    printf "\n%s\n" "$marker" >> "$rc_file"
-    printf "%s\n" "if [ -f \"$REPO_DIR/.env\" ]; then" >> "$rc_file"
-    printf "%s\n" "  set -a" >> "$rc_file"
-    printf "%s\n" "  source \"$REPO_DIR/.env\"" >> "$rc_file"
-    printf "%s\n" "  set +a" >> "$rc_file"
-    printf "%s\n" "fi" >> "$rc_file"
-    echo "    Added model-set .env export block to $rc_file"
-}
-
-ensure_npm_global_prefix() {
-    local prefix parent bin
-
-    prefix="$(npm prefix -g 2>/dev/null || true)"
-    if [ -z "$prefix" ]; then
-        prefix="$HOME/.npm-global"
-        npm config set prefix "$prefix" >/dev/null
-    fi
-
-    if [ -d "$prefix" ]; then
-        if [ ! -w "$prefix" ]; then
-            prefix="$HOME/.npm-global"
-            mkdir -p "$prefix"
-            npm config set prefix "$prefix" >/dev/null
-            echo "    Using user npm prefix: $prefix"
-        fi
-    else
-        parent="$(dirname "$prefix")"
-        if [ ! -w "$parent" ]; then
-            prefix="$HOME/.npm-global"
-            mkdir -p "$prefix"
-            npm config set prefix "$prefix" >/dev/null
-            echo "    Using user npm prefix: $prefix"
-        fi
-    fi
-
-    bin="$(npm prefix -g 2>/dev/null)/bin"
-    mkdir -p "$bin"
-    ensure_path_entry "$bin"
-    persist_path_entry "$bin"
-}
-
-configure_agent_browser_no_sandbox() {
-    local config_dir="$HOME_DIR/.agent-browser"
-    local config_file="$config_dir/config.json"
-    local tmp_file
-
-    mkdir -p "$config_dir"
-
-    if [ -f "$config_file" ]; then
-        tmp_file="$(mktemp)"
-        if jq '
-            .args =
-              if (.args == null or .args == "") then
-                "--no-sandbox"
-              elif ((.args | type) == "array") then
-                ((.args + ["--no-sandbox"]) | unique)
-              elif ((.args | type) == "string" and (.args | contains("--no-sandbox"))) then
-                .args
-              else
-                (.args + ",--no-sandbox")
-              end
-        ' "$config_file" > "$tmp_file"; then
-            mv "$tmp_file" "$config_file"
-        else
-            rm -f "$tmp_file"
-            echo '{ "args": "--no-sandbox" }' > "$config_file"
-        fi
-    else
-        echo '{ "args": "--no-sandbox" }' > "$config_file"
-    fi
-}
-
-run_agent_browser_doctor() {
-    local doctor_log
-
-    doctor_log="$(mktemp)"
-    if agent-browser doctor >"$doctor_log" 2>&1; then
-        rm -f "$doctor_log"
-        echo " passed"
-        return 0
-    fi
-
-    if grep -q "No usable sandbox" "$doctor_log"; then
-        echo " needs --no-sandbox"
-        echo "    Configuring ~/.agent-browser/config.json with --no-sandbox"
-        configure_agent_browser_no_sandbox
-        agent-browser close >/dev/null 2>&1 || true
-
-        if agent-browser doctor --offline --quick >"$doctor_log" 2>&1 && \
-            agent-browser open about:blank >>"$doctor_log" 2>&1 && \
-            agent-browser close >>"$doctor_log" 2>&1; then
-            rm -f "$doctor_log"
-            echo "    Quick doctor and launch smoke passed after --no-sandbox config"
-            return 0
-        fi
-    fi
-
-    echo " failed"
-    cat "$doctor_log"
-    rm -f "$doctor_log"
-    return 1
-}
-
-echo "model-set Setup"
-echo "==============="
-echo ""
-
-# =====================================================
-# 0. Check Prerequisites
-# =====================================================
-echo "Checking prerequisites..."
-
-# Python 3 (required for skill scripts)
-echo -n "  - Python 3..."
-PYTHON_CMD=""
-if command -v python3 &> /dev/null; then
-    PYTHON_VER=$(python3 --version 2>&1)
-    echo " ($PYTHON_VER)"
-    PYTHON_CMD="python3"
-else
-    echo " not found — attempting auto-install..."
-    INSTALLED=false
-
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS — use Homebrew if available, otherwise install Homebrew first
-        if command -v brew &> /dev/null; then
-            echo "    Installing via Homebrew..."
-            brew install python3 && INSTALLED=true
-        else
-            echo "    Homebrew not found — installing Homebrew first..."
-            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && \
-                brew install python3 && INSTALLED=true
-        fi
-    elif command -v apt-get &> /dev/null; then
-        echo "    Installing via apt-get..."
-        sudo apt-get update -qq && sudo apt-get install -y python3 && INSTALLED=true
-    elif command -v dnf &> /dev/null; then
-        echo "    Installing via dnf..."
-        sudo dnf install -y python3 && INSTALLED=true
-    elif command -v yum &> /dev/null; then
-        echo "    Installing via yum..."
-        sudo yum install -y python3 && INSTALLED=true
-    elif command -v pacman &> /dev/null; then
-        echo "    Installing via pacman..."
-        sudo pacman -S --noconfirm python && INSTALLED=true
-    elif command -v zypper &> /dev/null; then
-        echo "    Installing via zypper..."
-        sudo zypper install -y python3 && INSTALLED=true
-    else
-        echo ""
-        echo "  ERROR: Could not auto-install Python 3 — no supported package manager found."
-        echo "  Install manually from https://www.python.org/downloads/ and re-run setup."
-        exit 1
-    fi
-
-    if $INSTALLED; then
-        if command -v python3 &> /dev/null; then
-            PYTHON_VER=$(python3 --version 2>&1)
-            echo "    Installed: $PYTHON_VER"
-            PYTHON_CMD="python3"
-        else
-            echo "  ERROR: Python 3 installed but not found on PATH. Open a new terminal and re-run setup."
-            exit 1
-        fi
-    else
-        echo "  ERROR: Auto-install failed. Install Python 3 manually and re-run setup."
-        exit 1
-    fi
-fi
-
-# jq (required for Claude Code status line)
-echo -n "  - jq..."
-if command -v jq &> /dev/null; then
-    JQ_VER=$(jq --version 2>&1)
-    echo " ($JQ_VER)"
-else
-    echo " not found — attempting auto-install..."
-    INSTALLED=false
-
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        if command -v brew &> /dev/null; then
-            brew install jq && INSTALLED=true
-        fi
-    elif command -v apt-get &> /dev/null; then
-        sudo apt-get update -qq && sudo apt-get install -y jq && INSTALLED=true
-    elif command -v dnf &> /dev/null; then
-        sudo dnf install -y jq && INSTALLED=true
-    elif command -v yum &> /dev/null; then
-        sudo yum install -y jq && INSTALLED=true
-    elif command -v pacman &> /dev/null; then
-        sudo pacman -S --noconfirm jq && INSTALLED=true
-    elif command -v zypper &> /dev/null; then
-        sudo zypper install -y jq && INSTALLED=true
-    fi
-
-    if $INSTALLED && command -v jq &> /dev/null; then
-        echo "    Installed: $(jq --version 2>&1)"
-    else
-        echo "  WARNING: Could not auto-install jq. Status line will not work."
-        echo "  Install manually: https://jqlang.github.io/jq/download/"
-    fi
-fi
-
-echo ""
-
-# =====================================================
-# 1. Create Global Symlinks
-# =====================================================
-# NOTE: Symlinks MUST be created before CLI tools are installed.
-# CLI installers (e.g. Claude Code) create ~/.claude as a real directory,
-# which prevents the full-directory symlink from being established later.
-echo "Creating global config symlinks..."
-
-is_repo_link() {
-    # Check if path is a symlink/junction pointing into this repo.
-    # -L works on real Unix; on MINGW it doesn't detect junctions,
-    # so we also compare canonical paths (junction resolves to target).
-    local path="$1"
-    [ -L "$path" ] && return 0
-    if [ -d "$path" ] && command -v cygpath &> /dev/null; then
-        local real_path
-        real_path="$(cd "$path" 2>/dev/null && pwd -W 2>/dev/null || cygpath -w "$path" 2>/dev/null)"
-        local real_target
-        real_target="$(cygpath -w "$REPO_DIR" 2>/dev/null)"
-        if [[ "$real_path" == "$real_target"* ]] && [ "$real_path" != "$(cygpath -w "$path" 2>/dev/null)" ]; then
-            return 0
-        fi
-    fi
-    return 1
-}
-
-create_symlink() {
-    local link="$1"
-    local target="$2"
-
-    if is_repo_link "$link"; then
-        echo "  $link -> already linked"
-        return
-    fi
-
-    if [ -e "$link" ]; then
-        echo "  $link -> backing up existing to ${link}.backup"
-        mv "$link" "${link}.backup"
-    fi
-
-    mkdir -p "$(dirname "$link")"
-
-    # On MINGW/Windows, ln -s silently copies instead of symlinking.
-    # Use cmd junctions which actually work.
-    if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "mingw"* ]]; then
-        local win_link win_target
-        win_link="$(cygpath -w "$link")"
-        win_target="$(cygpath -w "$target")"
-        powershell -NoProfile -Command "New-Item -ItemType Junction -Path '$win_link' -Target '$win_target'" > /dev/null 2>&1
-        echo "  $link -> $target (junction)"
-    else
-        ln -s "$target" "$link"
-        echo "  $link -> $target"
-    fi
-}
-
-# Link a tool's config directory.
-# Always creates a full symlink → repo/global/<tool>.
-# Backs up any existing real directory to <dir>.backup.
-link_tool_config() {
-    local config_dir="$1"   # e.g. ~/.claude
-    local repo_global="$2"  # e.g. repo/global/claude
-
-    if is_repo_link "$config_dir"; then
-        echo "  $config_dir -> already linked"
-        return
-    fi
-
-    if [ -e "$config_dir" ]; then
-        echo "  $config_dir -> backing up existing to ${config_dir}.backup"
-        rm -rf "${config_dir}.backup"
-        mv "$config_dir" "${config_dir}.backup"
-    fi
-
-    mkdir -p "$(dirname "$config_dir")"
-
-    if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "mingw"* ]]; then
-        local win_link win_target
-        win_link="$(cygpath -w "$config_dir")"
-        win_target="$(cygpath -w "$repo_global")"
-        powershell -NoProfile -Command "New-Item -ItemType Junction -Path '$win_link' -Target '$win_target'" > /dev/null 2>&1
-        echo "  $config_dir -> $repo_global (junction)"
-    else
-        ln -s "$repo_global" "$config_dir"
-        echo "  $config_dir -> $repo_global"
-    fi
-}
-
-# Seed a tool's own skills directory from repo/skills.
-# Each agent owns its skills from here on, so this only ever SEEDS: an existing
-# directory is left untouched, however far it has diverged. Never backs up, never
-# overwrites — the dirs are gitignored, so a clobber would be unrecoverable.
-seed_skills_dir() {
-    local dir="$1"     # e.g. repo/global/claude/skills
-    local source="$2"  # e.g. repo/skills
-
-    if [ -L "$dir" ]; then
-        # Migration from the old shared-symlink layout.
-        echo "  $dir -> replacing shared symlink with own copy"
-        rm "$dir"
-    elif [ -d "$dir" ]; then
-        echo "  $dir -> already present, left untouched"
-        return
-    fi
-
-    mkdir -p "$dir"
-    cp -a "$source/." "$dir/"
-    echo "  $dir -> seeded from $source"
-}
-
-# Each agent gets its own skills directory (gitignored); repo/skills is the source
-# they are seeded from, not a live shared target.
-seed_skills_dir "$REPO_DIR/global/claude/skills"   "$REPO_DIR/skills"
-seed_skills_dir "$REPO_DIR/global/gemini/skills"   "$REPO_DIR/skills"
-seed_skills_dir "$REPO_DIR/global/opencode/skills" "$REPO_DIR/skills"
-seed_skills_dir "$REPO_DIR/global/codex/skills"    "$REPO_DIR/skills"
-# Link tool config dirs (always full symlink, backup existing)
-link_tool_config "$HOME_DIR/.claude"   "$REPO_DIR/global/claude"
-link_tool_config "$HOME_DIR/.gemini"   "$REPO_DIR/global/gemini"
-link_tool_config "$HOME_DIR/.opencode" "$REPO_DIR/global/opencode"
-link_tool_config "$HOME_DIR/.codex"    "$REPO_DIR/global/codex"
-
-echo ""
-
-# =====================================================
-# 2. Install/Update CLI Tools
-# =====================================================
-echo "Installing/Updating CLI tools..."
-
-# Claude Code
-echo -n "  - Claude Code..."
-if command -v claude &> /dev/null; then
-    echo " (already installed: $(claude --version 2>/dev/null || echo 'unknown'))"
-else
-    echo " installing..."
-    curl -fsSL https://claude.ai/install.sh | bash
-
-    # Claude installs its launcher into ~/.local/bin on Linux/macOS.
-    if [ -x "$HOME_DIR/.local/bin/claude" ]; then
-        ensure_path_entry "$HOME_DIR/.local/bin"
-        persist_user_local_bin_path
-    fi
-
-    if command -v claude &> /dev/null; then
-        echo "    Installed: $(claude --version 2>/dev/null || echo 'unknown')"
-    else
-        echo "  ERROR: Claude installed to $HOME_DIR/.local/bin/claude but is not on PATH."
-        echo "  Run: export PATH=\"\$HOME/.local/bin:\$PATH\""
-        echo "  Then re-run setup."
-        exit 1
-    fi
-fi
-
-# Node.js/npm (required for npm-installed CLIs and npx skills)
-echo -n "  - Node.js/npm..."
-if command -v node &> /dev/null && command -v npm &> /dev/null; then
-    echo " ($(node --version 2>/dev/null), npm $(npm --version 2>/dev/null))"
-else
-    echo " not found — attempting auto-install..."
-    INSTALLED=false
-
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        if command -v brew &> /dev/null; then
-            brew install node && INSTALLED=true
-        else
-            echo "    Homebrew not found — installing Homebrew first..."
-            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && \
-                brew install node && INSTALLED=true
-        fi
-    elif command -v apt-get &> /dev/null; then
-        sudo apt-get update -qq && sudo apt-get install -y nodejs npm && INSTALLED=true
-    elif command -v dnf &> /dev/null; then
-        sudo dnf install -y nodejs npm && INSTALLED=true
-    elif command -v yum &> /dev/null; then
-        sudo yum install -y nodejs npm && INSTALLED=true
-    elif command -v pacman &> /dev/null; then
-        sudo pacman -S --noconfirm nodejs npm && INSTALLED=true
-    elif command -v zypper &> /dev/null; then
-        sudo zypper install -y nodejs npm && INSTALLED=true
-    fi
-
-    if $INSTALLED && command -v node &> /dev/null && command -v npm &> /dev/null; then
-        echo "    Installed: $(node --version 2>/dev/null), npm $(npm --version 2>/dev/null)"
-    else
-        echo "  ERROR: Could not install Node.js/npm. Install Node.js LTS manually and re-run setup."
-        exit 1
-    fi
-fi
-ensure_npm_global_prefix
-
-# Claude Code — Warp plugin (warpdotdev/claude-code-warp)
-# Plugin state lives in ~/.claude/plugins which is gitignored runtime data
-# (not carried by the global symlink), so it must be installed here.
-echo -n "  - Warp plugin for Claude Code..."
-if command -v claude &> /dev/null; then
-    if claude plugin list 2>/dev/null | grep -q "warp@claude-code-warp"; then
-        echo " (already installed)"
-    else
-        echo " installing..."
-        claude plugin marketplace add warpdotdev/claude-code-warp 2>/dev/null && \
-            claude plugin install warp@claude-code-warp -s user 2>/dev/null && \
-            echo "    Installed: warp@claude-code-warp" || \
-            echo "  WARNING: Failed to install Warp plugin — run manually: claude plugin install warp@claude-code-warp"
-    fi
-else
-    echo " (skipped — claude not on PATH)"
-fi
-
-# Gemini CLI
-echo -n "  - Gemini CLI..."
-if command -v gemini &> /dev/null; then
-    echo " (already installed)"
-else
-    echo " installing..."
-    npm install -g @google/gemini-cli
-    echo "    Installed!"
-fi
-
-# open-code
-echo -n "  - open-code..."
-if command -v opencode &> /dev/null; then
-    echo " (already installed)"
-else
-    echo " installing..."
-    if command -v brew &> /dev/null; then
-        brew install anomalyco/tap/opencode 2>/dev/null || npm install -g opencode-ai@latest
-    else
-        npm install -g opencode-ai@latest
-    fi
-    echo "    Installed!"
-fi
-
-# agent-browser
-echo -n "  - agent-browser..."
-if command -v agent-browser &> /dev/null; then
-    CURRENT_AB="$(agent-browser --version 2>/dev/null || echo 'unknown')"
-    echo " updating ($CURRENT_AB)..."
-    agent-browser upgrade >/dev/null 2>&1 || npm install -g agent-browser@latest
-else
-    echo " installing..."
-    npm install -g agent-browser@latest
-fi
-hash -r 2>/dev/null || true
-if ! command -v agent-browser &> /dev/null; then
-    echo "  ERROR: agent-browser installed but is not on PATH."
-    echo "  Run: export PATH=\"$(npm prefix -g 2>/dev/null)/bin:\$PATH\""
-    echo "  Then re-run setup."
-    exit 1
-fi
-echo "    Installed: $(agent-browser --version 2>/dev/null || echo 'unknown')"
-
-# Browser binary and system dependencies
-echo "  - agent-browser browser..."
-if [[ "$OSTYPE" == "linux"* ]]; then
-    agent-browser install --with-deps
-else
-    agent-browser install
-fi
-echo "    Browser install complete"
-
-# Validate the install before continuing
-echo -n "  - agent-browser doctor..."
-if ! run_agent_browser_doctor; then
-    echo "  ERROR: agent-browser doctor failed. Re-run with: agent-browser doctor"
-    exit 1
-fi
-
-# Keep the upstream discovery skill synced for agents that read .agents/skills.
-echo "  - agent-browser skill..."
-if (cd "$REPO_DIR" && npx -y skills add vercel-labs/agent-browser >/dev/null); then
-    echo "    Skill synced from vercel-labs/agent-browser"
-else
-    echo "  ERROR: Failed to sync agent-browser skill via npx skills add vercel-labs/agent-browser"
-    exit 1
-fi
-
-# Ensure screenshots directory exists
-mkdir -p "$REPO_DIR/skills/agent-browser/screenshots"
-
-# Ollama
-echo -n "  - Ollama..."
-if command -v ollama &> /dev/null; then
-    echo " (already installed: $(ollama --version 2>/dev/null || echo 'unknown'))"
-else
-    echo " installing..."
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        if command -v brew &> /dev/null; then
-            brew install ollama
-        else
-            curl -fsSL https://ollama.com/install.sh | sh
-        fi
-    else
-        curl -fsSL https://ollama.com/install.sh | sh
-    fi
-    echo "    Installed!"
-fi
-
-# Codex CLI
-echo -n "  - Codex CLI..."
-if command -v codex &> /dev/null; then
-    echo " (already installed: $(codex --version 2>/dev/null || echo 'unknown'))"
-else
-    echo " installing..."
-    npm install -g @openai/codex
-    echo "    Installed!"
-fi
-
-# Firecrawl CLI (auth via FIRECRAWL_API_KEY env var, sourced from .env — no login needed)
-echo -n "  - Firecrawl CLI..."
-if command -v firecrawl &> /dev/null; then
-    echo " (already installed: $(firecrawl --version 2>/dev/null || echo 'unknown'))"
-else
-    echo " installing..."
-    npm install -g firecrawl-cli
-    echo "    Installed!"
-fi
-
-echo ""
-
-# =====================================================
-# 3. Setup Stitch (Gemini CLI extension only)
-# =====================================================
-echo "Setting up Stitch (Gemini CLI extension)..."
-
-STITCH_KEY=$(grep '^STITCH_API_KEY=' "$REPO_DIR/.env" 2>/dev/null | cut -d'=' -f2- | xargs)
-if [ -n "$STITCH_KEY" ] && [ "$STITCH_KEY" != "AQ.STITCH_API_KEY" ]; then
-    echo "  Stitch API key found in .env"
-
-    # Install Stitch extension for Gemini CLI
-    if command -v gemini &> /dev/null; then
-        gemini extensions install https://github.com/gemini-cli-extensions/stitch --auto-update 2>/dev/null && \
-            echo "    Installed stitch extension for Gemini CLI" || \
-            echo "    Stitch extension already installed or updated"
-
-        # Configure extension to use API key auth from STITCH_API_KEY
-        EXT_DIR="$HOME_DIR/.gemini/extensions/Stitch"
-        if [ -f "$EXT_DIR/gemini-extension-apikey.json" ]; then
-            sed "s/YOUR_API_KEY/$STITCH_KEY/g" "$EXT_DIR/gemini-extension-apikey.json" > "$EXT_DIR/gemini-extension.json"
-            echo "    Configured stitch extension with API key auth"
-        fi
-    fi
-else
-    echo "  WARNING: No STITCH_API_KEY in .env"
-    echo "  Add your Stitch API key to $REPO_DIR/.env"
-    echo "  Get one at: https://aistudio.google.com/apikey"
-fi
-
-echo ""
-
-# =====================================================
-# 4. Check for .env file
-# =====================================================
 ENV_FILE="$REPO_DIR/.env"
-ENV_EXAMPLE="$REPO_DIR/.env.example"
+SKILL_MANIFEST="$REPO_DIR/skills/manifest.json"
 
-if [ ! -f "$ENV_FILE" ]; then
-    echo "WARNING: .env file not found!"
-    echo "  Create it from .env.example and fill in your API keys:"
-    echo "    cp \"$ENV_EXAMPLE\" \"$ENV_FILE\""
-    echo ""
+# shellcheck source=lib/manifest.sh
+source "$SCRIPT_DIR/lib/manifest.sh"
+
+WITH_OLLAMA=false
+WITH_OBSIDIAN=false
+WITH_SOGNI=true
+FORCE=false
+
+for arg in "$@"; do
+  case "$arg" in
+    --with-ollama)   WITH_OLLAMA=true ;;
+    --with-obsidian) WITH_OBSIDIAN=true ;;
+    --no-sogni)      WITH_SOGNI=false ;;
+    --force)         FORCE=true ;;
+    -h|--help)       sed -n '2,8p' "$0"; exit 0 ;;
+    *) echo "setup: unknown option '$arg'" >&2; exit 2 ;;
+  esac
+done
+
+say()  { printf '%s\n' "$*"; }
+step() { printf '\n%s\n%s\n' "$*" "$(printf '=%.0s' $(seq ${#1}))"; }
+ok()   { printf '  ok    %s\n' "$*"; }
+warn() { printf '  warn  %s\n' "$*"; }
+die()  { printf '  FAIL  %s\n' "$*" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# 0. Prerequisites
+# ---------------------------------------------------------------------------
+step "Prerequisites"
+
+# agent-browser's --with-deps shells out to the system package manager. If sudo
+# would block on a password we must find out now, not halfway through a 400 MB
+# browser install on an unattended run.
+NEED_SUDO=false
+if [ "$(id -u)" -ne 0 ]; then
+  NEED_SUDO=true
+  if ! sudo -n true 2>/dev/null; then
+    warn "passwordless sudo unavailable — you may be prompted during system package installs"
+    if [ ! -t 0 ]; then
+      die "no TTY and no passwordless sudo: run interactively, or pre-authorise with 'sudo -v'"
+    fi
+  else
+    ok "sudo available non-interactively"
+  fi
 fi
+
+pkg_install() {
+  local pkg="$1" sudo_cmd=""
+  $NEED_SUDO && sudo_cmd="sudo"
+  if   command -v apt-get >/dev/null; then $sudo_cmd apt-get update -qq && $sudo_cmd apt-get install -y "$pkg"
+  elif command -v dnf     >/dev/null; then $sudo_cmd dnf install -y "$pkg"
+  elif command -v pacman  >/dev/null; then $sudo_cmd pacman -S --noconfirm "$pkg"
+  elif command -v zypper  >/dev/null; then $sudo_cmd zypper install -y "$pkg"
+  elif command -v brew    >/dev/null; then brew install "$pkg"
+  else return 1
+  fi
+}
+
+require() {
+  local bin="$1" pkg="${2:-$1}" why="$3"
+  if command -v "$bin" >/dev/null; then
+    ok "$bin"
+    return
+  fi
+  say "  ...  $bin missing ($why) — installing"
+  pkg_install "$pkg" >/dev/null 2>&1 || die "could not install $pkg; install it manually and re-run"
+  command -v "$bin" >/dev/null || die "$pkg installed but $bin is not on PATH — open a new shell and re-run"
+  ok "$bin (installed)"
+}
+
+require curl    curl    "downloads"
+require jq      jq      "reads skills/manifest.json and the Claude status line"
+require python3 python3 "skill scripts"
+require ffmpeg  ffmpeg  "Sogni video generation"
+
+if ! command -v node >/dev/null || ! command -v npm >/dev/null; then
+  say "  ...  node/npm missing — installing"
+  pkg_install nodejs >/dev/null 2>&1 || true
+  pkg_install npm    >/dev/null 2>&1 || true
+  command -v node >/dev/null && command -v npm >/dev/null \
+    || die "install Node.js LTS manually and re-run"
+fi
+ok "node $(node --version), npm $(npm --version)"
+
+# Keep global npm installs in the user's prefix so nothing needs root.
+NPM_PREFIX="$(npm prefix -g 2>/dev/null || true)"
+if [ -z "$NPM_PREFIX" ] || [ ! -w "$NPM_PREFIX" ]; then
+  NPM_PREFIX="$HOME/.npm-global"
+  mkdir -p "$NPM_PREFIX"
+  npm config set prefix "$NPM_PREFIX" >/dev/null
+fi
+NPM_BIN="$NPM_PREFIX/bin"
+mkdir -p "$NPM_BIN"
+case ":$PATH:" in *":$NPM_BIN:"*) ;; *) export PATH="$NPM_BIN:$PATH" ;; esac
+ok "npm prefix $NPM_PREFIX"
+
+# ---------------------------------------------------------------------------
+# 1. CLI tools
+# ---------------------------------------------------------------------------
+step "CLI tools"
+
+npm_global() {
+  local pkg="$1" bin="$2"
+  if command -v "$bin" >/dev/null; then
+    npm install -g "$pkg@latest" >/dev/null 2>&1 && ok "$bin (updated)" || ok "$bin (already installed)"
+  else
+    npm install -g "$pkg@latest" >/dev/null 2>&1 || die "npm install -g $pkg failed"
+    ok "$bin (installed)"
+  fi
+}
+
+if command -v claude >/dev/null; then
+  ok "claude $(claude --version 2>/dev/null || echo '')"
+else
+  curl -fsSL https://claude.ai/install.sh | bash
+  case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
+  command -v claude >/dev/null || die "claude installed to ~/.local/bin but is not on PATH"
+  ok "claude (installed)"
+fi
+
+npm_global "@openai/codex" codex
+npm_global "opencode-ai"   opencode
+npm_global "agent-browser" agent-browser
+npm_global "firecrawl-cli" firecrawl
+
+$WITH_SOGNI && npm_global "@sogni-ai/sogni-creative-agent-skill" sogni-agent
+
+if $WITH_OBSIDIAN; then
+  npm_global "obsidian-cli" obsidian
+fi
+
+if $WITH_OLLAMA; then
+  if command -v ollama >/dev/null; then ok "ollama"
+  else curl -fsSL https://ollama.com/install.sh | sh && ok "ollama (installed)"
+  fi
+fi
+
+# agent-browser needs a browser binary plus system libraries.
+say "  ...  agent-browser browser runtime"
+if [ "$(uname -s)" = "Linux" ]; then
+  agent-browser install --with-deps >/dev/null 2>&1 || warn "browser install reported errors — run 'agent-browser doctor'"
+else
+  agent-browser install >/dev/null 2>&1 || warn "browser install reported errors"
+fi
+# Containers and some hardened kernels have no usable sandbox; agent-browser
+# then refuses to launch until told so explicitly.
+if ! agent-browser doctor >/dev/null 2>&1; then
+  mkdir -p "$HOME/.agent-browser"
+  if [ -f "$HOME/.agent-browser/config.json" ]; then
+    tmp="$(mktemp)"
+    jq '.args = "--no-sandbox"' "$HOME/.agent-browser/config.json" > "$tmp" && mv "$tmp" "$HOME/.agent-browser/config.json"
+  else
+    echo '{ "args": "--no-sandbox" }' > "$HOME/.agent-browser/config.json"
+  fi
+  agent-browser doctor >/dev/null 2>&1 && ok "agent-browser (needed --no-sandbox)" \
+    || warn "agent-browser doctor still failing — run it manually"
+else
+  ok "agent-browser doctor"
+fi
+mkdir -p "$HOME/.agent-browser/screenshots"
+
+# Warp plugins.
+if claude plugin list 2>/dev/null | grep -q "warp@claude-code-warp"; then
+  ok "warp plugin (claude)"
+else
+  claude plugin marketplace add warpdotdev/claude-code-warp >/dev/null 2>&1 \
+    && claude plugin install warp@claude-code-warp -s user >/dev/null 2>&1 \
+    && ok "warp plugin (claude, installed)" \
+    || warn "warp plugin install failed — run: claude plugin install warp@claude-code-warp"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Config files
+# ---------------------------------------------------------------------------
+step "Config files"
+
+link() {
+  local src="$1" dest="$2"
+  [ -e "$src" ] || { warn "missing in repo: ${src#"$REPO_DIR"/}"; return; }
+  mkdir -p "$(dirname "$dest")"
+  if [ -L "$dest" ]; then
+    [ "$(readlink -f "$dest")" = "$(readlink -f "$src")" ] && return 0
+    rm "$dest"
+  elif [ -e "$dest" ]; then
+    if $FORCE; then
+      mv "$dest" "$dest.backup"
+    else
+      warn "$dest exists and is not our symlink — left alone (use --force to replace)"
+      return
+    fi
+  fi
+  ln -s "$src" "$dest"
+}
+
+for entry in "${CONFIG_MANIFEST[@]}"; do
+  link "$REPO_DIR/${entry%%::*}" "${entry##*::}"
+done
+ok "${#CONFIG_MANIFEST[@]} config files linked"
+
+# ---------------------------------------------------------------------------
+# 3. Skills
+# ---------------------------------------------------------------------------
+# Every host's skills directory is a farm of per-skill symlinks. Per-skill
+# rather than one directory link because a host's set is the union of its own
+# skills and the shared external ones — and because it is what lets us keep
+# Codex-only skills physically invisible to OpenCode.
+step "Skills"
+
+[ -f "$SKILL_MANIFEST" ] || die "missing $SKILL_MANIFEST"
+
+# Remove links we previously created that the manifest no longer justifies.
+prune_host() {
+  local host="$1" dir="${HOST_SKILL_DIRS[$host]}"
+  [ -d "$dir" ] || return 0
+  local link target
+  for link in "$dir"/*; do
+    [ -L "$link" ] || continue
+    target="$(readlink -f "$link" 2>/dev/null || true)"
+    case "$target" in
+      "$REPO_DIR"/skills/*) [ -e "$link" ] || rm "$link" ;;
+      "") rm "$link" ;;   # dangling
+    esac
+  done
+}
+
+link_skill() {
+  local host="$1" name="$2" src="$3"
+  local dir="${HOST_SKILL_DIRS[$host]}"
+  mkdir -p "$dir"
+  local dest="$dir/$name"
+  [ -L "$dest" ] && rm "$dest"
+  [ -e "$dest" ] && { warn "$dest is a real directory — left alone"; return; }
+  ln -s "$src" "$dest"
+}
+
+declare -A linked_count=()
+for host in "${!HOST_SKILL_DIRS[@]}"; do
+  prune_host "$host"
+  linked_count[$host]=0
+done
+
+# Own and external sets, driven by skills/manifest.json.
+while IFS= read -r set_name; do
+  set_dir="$(jq -r --arg s "$set_name" '.sets[$s].dir' "$SKILL_MANIFEST")"
+  [ -d "$REPO_DIR/$set_dir" ] || continue
+  for skill_path in "$REPO_DIR/$set_dir"/*/; do
+    [ -d "$skill_path" ] || continue
+    skill="$(basename "$skill_path")"
+    # Per-skill override wins over the set default.
+    hosts="$(jq -r --arg k "$set_name/$skill" --arg s "$set_name" \
+      '(.overrides[$k].hosts // .sets[$s].hosts)[]' "$SKILL_MANIFEST")"
+    while IFS= read -r host; do
+      [ -n "$host" ] || continue
+      [ -n "${HOST_SKILL_DIRS[$host]:-}" ] || { warn "unknown host '$host' for $skill"; continue; }
+      link_skill "$host" "$skill" "${skill_path%/}"
+      linked_count[$host]=$(( linked_count[$host] + 1 ))
+    done <<< "$hosts"
+  done
+done < <(jq -r '.sets | keys[]' "$SKILL_MANIFEST")
+
+# npm-delivered skills: the package is the skill, so link the install directory.
+while IFS= read -r npm_skill; do
+  pkg="$(jq -r --arg s "$npm_skill" '.npmSkills[$s].package' "$SKILL_MANIFEST")"
+  pkg_dir="$NPM_PREFIX/lib/node_modules/$pkg"
+  if [ ! -d "$pkg_dir" ]; then
+    $WITH_SOGNI && warn "$npm_skill: $pkg not installed — skipped"
+    continue
+  fi
+  while IFS= read -r host; do
+    [ -n "${HOST_SKILL_DIRS[$host]:-}" ] || continue
+    link_skill "$host" "$npm_skill" "$pkg_dir"
+    linked_count[$host]=$(( linked_count[$host] + 1 ))
+  done < <(jq -r --arg s "$npm_skill" '.npmSkills[$s].hosts[]' "$SKILL_MANIFEST")
+done < <(jq -r '.npmSkills | keys[]' "$SKILL_MANIFEST")
+
+for host in claude codex opencode; do
+  ok "$host: ${linked_count[$host]} skills -> ${HOST_SKILL_DIRS[$host]}"
+done
+
+# ---------------------------------------------------------------------------
+# 4. Shell environment
+# ---------------------------------------------------------------------------
+step "Shell environment"
+
+case "$(basename "${SHELL:-bash}")" in
+  zsh)  RC="$HOME/.zshrc" ;;
+  fish) RC="" ;;
+  *)    RC="$HOME/.bashrc" ;;
+esac
+
+MARKER="# >>> model-set >>>"
+if [ -z "$RC" ]; then
+  warn "fish detected — add the block from scripts/setup.sh to config.fish manually"
+elif grep -Fq "$MARKER" "$RC" 2>/dev/null; then
+  ok "shell block already in $RC"
+else
+  cat >> "$RC" <<EOF
+
+$MARKER
+# Secrets for the MCP servers and tool CLIs.
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  . "$ENV_FILE"
+  set +a
+fi
+# OpenCode also scans ~/.claude/skills and ~/.agents/skills for compatibility,
+# which would leak the Claude set into it. It must only see skills/codex.
+export OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
+export OPENCODE_DISABLE_EXTERNAL_SKILLS=1
+export PATH="$NPM_BIN:\$HOME/.local/bin:\$PATH"
+# <<< model-set <<<
+EOF
+  ok "added model-set block to $RC"
+fi
+
+export OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
+export OPENCODE_DISABLE_EXTERNAL_SKILLS=1
 
 if [ -f "$ENV_FILE" ]; then
-    persist_model_set_env
-fi
-
-# =====================================================
-# 5. Generate ~/.mcp.json from template
-# =====================================================
-echo "Generating MCP config..."
-
-MCP_TEMPLATE="$REPO_DIR/global/mcp/mcp.json.template"
-MCP_OUTPUT="$HOME_DIR/.mcp.json"
-
-if [ -f "$ENV_FILE" ]; then
-    if [ -f "$MCP_OUTPUT" ]; then
-        echo "  Skipped: $MCP_OUTPUT already exists (not overwriting)"
-    else
-        # Load .env file and substitute in template
-        cp "$MCP_TEMPLATE" "$MCP_OUTPUT"
-
-        while IFS='=' read -r key value; do
-            # Skip comments and empty lines
-            [[ $key =~ ^#.*$ ]] && continue
-            [[ -z "$key" ]] && continue
-
-            # Remove leading/trailing whitespace
-            key=$(echo "$key" | xargs)
-            value=$(echo "$value" | xargs)
-
-            # Substitute in output file
-            if [ -n "$value" ]; then
-                sed -i.bak "s|\${$key}|$value|g" "$MCP_OUTPUT"
-            fi
-        done < "$ENV_FILE"
-
-        rm -f "${MCP_OUTPUT}.bak"
-        echo "  Generated: $MCP_OUTPUT"
-    fi
-
-    # Generate Codex config.toml from template
-    CODEX_TEMPLATE="$REPO_DIR/global/codex/config.toml.template"
-    CODEX_OUTPUT="$REPO_DIR/global/codex/config.toml"
-
-    if [ -f "$CODEX_TEMPLATE" ]; then
-        cp "$CODEX_TEMPLATE" "$CODEX_OUTPUT"
-
-        while IFS='=' read -r key value; do
-            [[ $key =~ ^#.*$ ]] && continue
-            [[ -z "$key" ]] && continue
-            key=$(echo "$key" | xargs)
-            value=$(echo "$value" | xargs)
-            if [ -n "$value" ]; then
-                sed -i.bak "s|\${$key}|$value|g" "$CODEX_OUTPUT"
-            fi
-        done < "$ENV_FILE"
-
-        rm -f "${CODEX_OUTPUT}.bak"
-        echo "  Generated: $CODEX_OUTPUT"
-    fi
+  set -a; . "$ENV_FILE"; set +a
+  ok ".env loaded"
 else
-    echo "  Skipped: Create .env file first"
+  warn "no .env — copy .env.example to .env and fill it in"
 fi
 
-echo ""
+# ---------------------------------------------------------------------------
+# 5. Global MCP servers (Claude)
+# ---------------------------------------------------------------------------
+# Codex and OpenCode take their MCP config from the tracked files we linked
+# above. Claude's user scope lives in ~/.claude.json, which also holds runtime
+# state and so cannot be a symlink — it has to be registered imperatively.
+step "Global MCP servers"
 
-# =====================================================
-# 6. Ask about Local Folder Setup
-# =====================================================
-echo "Local folder setup..."
-echo "  Current directory: $CURRENT_DIR"
-echo ""
-echo "  This will create project-specific config folders in your current directory:"
-echo "    - .claude/     (Claude Code local config)"
-echo "    - .gemini/     (Gemini CLI local config)"
-echo "    - .opencode/   (OpenCode local config)"
-echo "    - .codex/      (Codex CLI local config)"
-echo "    - ralph/       (Ralph autonomous agent)"
-echo ""
-read -p "  Create local folders in current directory? [y/N] " -n 1 -r
-echo ""
+claude_mcp_has() { claude mcp list 2>/dev/null | grep -q "^$1[: ]"; }
 
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo "  Creating local folders..."
-
-    # Create .claude local
-    if [ ! -d "$CURRENT_DIR/.claude" ]; then
-        mkdir -p "$CURRENT_DIR/.claude"
-        if [ -f "$REPO_DIR/local/claude/CLAUDE.md.template" ]; then
-            cp "$REPO_DIR/local/claude/CLAUDE.md.template" "$CURRENT_DIR/.claude/CLAUDE.md"
-        fi
-        echo "    Created: .claude/"
-    else
-        echo "    Exists: .claude/"
-    fi
-
-    # Create .gemini local
-    if [ ! -d "$CURRENT_DIR/.gemini" ]; then
-        mkdir -p "$CURRENT_DIR/.gemini"
-        if [ -f "$REPO_DIR/local/gemini/GEMINI.md.template" ]; then
-            cp "$REPO_DIR/local/gemini/GEMINI.md.template" "$CURRENT_DIR/.gemini/GEMINI.md"
-        fi
-        echo "    Created: .gemini/"
-    else
-        echo "    Exists: .gemini/"
-    fi
-
-    # Create .opencode local
-    if [ ! -d "$CURRENT_DIR/.opencode" ]; then
-        mkdir -p "$CURRENT_DIR/.opencode"
-        if [ -f "$REPO_DIR/local/opencode/AGENT.md.template" ]; then
-            cp "$REPO_DIR/local/opencode/AGENT.md.template" "$CURRENT_DIR/.opencode/AGENT.md"
-        fi
-        echo "    Created: .opencode/"
-    else
-        echo "    Exists: .opencode/"
-    fi
-
-    # Create .codex local
-    if [ ! -d "$CURRENT_DIR/.codex" ]; then
-        mkdir -p "$CURRENT_DIR/.codex"
-        echo "    Created: .codex/"
-    else
-        echo "    Exists: .codex/"
-    fi
-
-    # Copy AGENTS.md to project root (Codex reads it from project root)
-    if [ ! -f "$CURRENT_DIR/AGENTS.md" ]; then
-        if [ -f "$REPO_DIR/local/codex/AGENTS.md.template" ]; then
-            cp "$REPO_DIR/local/codex/AGENTS.md.template" "$CURRENT_DIR/AGENTS.md"
-            echo "    Created: AGENTS.md"
-        fi
-    else
-        echo "    Exists: AGENTS.md"
-    fi
-
-    # Create ralph folder
-    if [ ! -d "$CURRENT_DIR/ralph" ]; then
-        mkdir -p "$CURRENT_DIR/ralph/archive"
-        cp "$REPO_DIR/local/ralph/claude_ralph.sh" "$CURRENT_DIR/ralph/"
-        cp "$REPO_DIR/local/ralph/gemini_ralph.sh" "$CURRENT_DIR/ralph/"
-        cp "$REPO_DIR/local/ralph/opencode_ralph.sh" "$CURRENT_DIR/ralph/"
-        cp "$REPO_DIR/local/ralph/codex_ralph.sh" "$CURRENT_DIR/ralph/"
-        cp "$REPO_DIR/local/ralph/prompt.md" "$CURRENT_DIR/ralph/"
-        cp "$REPO_DIR/local/ralph/README.md" "$CURRENT_DIR/ralph/"
-        chmod +x "$CURRENT_DIR/ralph/"*.sh
-        echo "    Created: ralph/"
-        echo ""
-        echo "  Ralph setup complete! Next steps:"
-        echo "    1. Create a plan.md file in ralph/"
-        echo "    2. Run: bash ralph/claude_ralph.sh"
-    else
-        echo "    Exists: ralph/"
-    fi
-else
-    echo "  Skipped local folder creation."
-    echo "  Run setup again from your project directory to create local folders."
+if command -v claude >/dev/null; then
+  if claude_mcp_has context7; then
+    ok "context7 (already registered)"
+  else
+    claude mcp add -s user --transport http context7 https://mcp.context7.com/mcp \
+      --header "CONTEXT7_API_KEY: \${CONTEXT7_API_KEY}" >/dev/null 2>&1 \
+      && ok "context7 registered at user scope" \
+      || warn "could not register context7 — run 'claude mcp add' manually"
+  fi
+  if claude_mcp_has aiguide; then
+    ok "aiguide (already registered)"
+  else
+    claude mcp add -s user --transport http aiguide https://mcp.tigerdata.com/docs >/dev/null 2>&1 \
+      && ok "aiguide registered at user scope" \
+      || warn "could not register aiguide — run 'claude mcp add' manually"
+  fi
 fi
 
-echo ""
+# ---------------------------------------------------------------------------
+# Done
+# ---------------------------------------------------------------------------
+step "Next steps"
+cat <<'EOF'
+  Setup cannot log you in — all three agents use OAuth. Do this now:
 
-# =====================================================
-# Done!
-# =====================================================
-echo "Setup complete!"
-echo ""
-echo "Global configs installed:"
-echo "  - ~/.claude -> model-set/global/claude"
-echo "  - ~/.gemini -> model-set/global/gemini"
-echo "  - ~/.opencode -> model-set/global/opencode"
-echo "  - ~/.codex -> model-set/global/codex"
-echo ""
-echo "MCP Servers configured:"
-echo "  - context7 (HTTP transport, API key in .env)"
-echo "  - aiguide (npx @tigerdata/pg-aiguide, no auth required)"
-echo ""
+      claude              # then /login
+      codex login
+      opencode auth login
 
-if [ ! -f "$ENV_FILE" ]; then
-    echo "Next steps:"
-    echo "  1. Create .env file: cp \"$ENV_EXAMPLE\" \"$ENV_FILE\""
-    echo "  2. Fill in your API keys (CONTEXT7_API_KEY, etc.)"
-    echo "  3. Run setup again to generate ~/.mcp.json"
-fi
+  Then verify the install:
+
+      ./scripts/doctor.sh
+
+  Project setup (postgres MCP, local context files):
+
+      ./scripts/apply-local.sh /path/to/project
+EOF

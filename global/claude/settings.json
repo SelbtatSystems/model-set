@@ -61,7 +61,6 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "claude-fable-5",
   "enabledMcpjsonServers": [
     "postgres",
     "context7",
@@ -95,7 +94,7 @@
       }
     }
   },
-  "effortLevel": "xhigh",
+  "effortLevel": "high",
   "tui": "fullscreen",
   "theme": "dark-ansi"
 }

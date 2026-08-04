@@ -309,14 +309,27 @@ weeks.
   `~/.claude` symlinked into the repo with live sqlite handles open. Switching
   layouts underneath a running agent would corrupt its session, so the migration
   is a separate script to run with everything closed. A fresh clone skips it.
+- **`migrate-from-symlink.sh` also removes legacy seeded skill copies.** That
+  step began as an ad-hoc loop in the migration notes and got its host→set
+  mapping wrong, reporting a `skills/claude` skill stranded in the OpenCode
+  directory as an unrecoverable orphan. Membership is a filesystem check across
+  every set, so it now lives in the script where it cannot be re-derived wrongly.
+  The same pass fixed a `--dry-run` that probed for collisions through the very
+  symlink it had only *pretended* to remove, and so reported moving nothing.
 
 ## Open items
 
-- **Phase 2 worklist** — `./scripts/lint-skills.sh` reports 20 violations across
-  6 of 38 Codex skills; 12 are in `do-pr`.
-- **Legacy `.gitignore` section** — the runtime-data entries are only needed
-  until `migrate-from-symlink.sh` has been run on this machine. Delete the marked
-  block afterwards.
 - **`skills/claude/` dialect audit** — the Claude set was never reviewed for
   Claude-only constructs that are simply *wrong* rather than host-incompatible.
   Out of scope for both phases as agreed, but worth a pass eventually.
+
+### Closed
+
+- **Phase 2 worklist** — done 2026-08-04. `./scripts/lint-skills.sh` is green
+  across all 38 Codex skills. The last 8 violations were `context7-mcp` (3),
+  `improve-codebase-architecture` (2), and a Claude-only `allowed-tools:` key in
+  `design-md`, `enhance-prompt` and `firecrawl-cli`. One commit each. `do-pr`'s
+  12 were cleared earlier.
+- **Legacy `.gitignore` section** — deleted 2026-08-04, after
+  `migrate-from-symlink.sh` ran on this machine. Removing it exposed no
+  newly-untracked runtime files, which is the proof the migration was complete.

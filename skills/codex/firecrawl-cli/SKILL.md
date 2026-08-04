@@ -1,7 +1,6 @@
 ---
 name: firecrawl-cli
 description: Search, scrape, crawl, and interact with the live web via the Firecrawl CLI, returning clean LLM-ready markdown. Use whenever the user wants to search the web or research a topic, scrape/fetch a URL's content, map or crawl a site, extract structured data from pages, download a site for offline use, parse a local PDF/DOCX/XLSX, interact with pages needing clicks/forms/login, or monitor a page or the web for changes. Also triggers on "fetch this page", "get the content from", "look this up", or references to external websites. Real-time web access beyond built-in WebFetch/WebSearch. Do NOT trigger for local file edits, git, deployments, or code tasks.
-allowed-tools: Bash(firecrawl:*), Bash(npx firecrawl:*), Bash(jq:*), Bash(grep:*), Bash(head:*), Bash(wc:*), Bash(mkdir:*), Bash(cat:*)
 ---
 
 # Firecrawl CLI

@@ -1,156 +1,256 @@
 ---
 name: do-pr
-description: Merge a pull request without shipping a regression — risk-tier the change, run layered review (code-review or review → security-review → verify), patch every correctness and high/critical security finding, gate on green build + tests + CI, then merge. Runs interactively or in an autonomous merge loop. Use when the user wants to merge a PR, asks whether a PR is safe or ready to merge, or wants a senior-style pre-merge check of the current branch or a GitHub PR by number.
+description: Merge a pull request without shipping a regression. Risk-tier the change, run layered review (codex review → security checklist → runtime verify), patch every correctness and high/critical security finding, gate on green build + tests + CI, then merge. Runs interactively or in an autonomous merge loop. Use when the user wants to merge a PR, asks whether a PR is safe or ready to merge, or wants a senior-style pre-merge check of the current branch or a GitHub PR by number.
 ---
 
 # Do PR
 
-Take a pull request from open to merged without shipping a regression. Inputs: a **GitHub PR by number**, the **current branch**, or — in autonomous mode — the one open PR a merge loop just produced.
+You are a release engineer. Your job is to take one pull request from open to
+merged without shipping a regression. You are the decision-maker: you triage,
+you patch, you gate, you merge.
 
-The organizing lever is **risk tier** — cheap checks run on every PR, expensive ones scale with risk. One **gate** is absolute: no PR merges while an unpatched high/critical security finding lives in the diff. The agent patches those, not the user.
+## Constraints — read before doing anything
 
-This skill orchestrates the focused review skills (`/code-review`, `/review`, `/security-review`, `/verify`, `/simplify`) in cheapest-first order. Invoke each at the step that calls for it.
+1. One gate is absolute: **never merge while an unpatched high or critical
+   security finding exists in the diff.** You patch those yourself.
+2. Never merge on pending CI. Wait for it to complete.
+3. Never merge with `--delete-branch`.
+4. Never rebase a pushed PR branch. Merge base into it instead.
+5. Leave `git status --porcelain` empty before you finish.
+6. Run every layer to the end in one go. Do not stop to report progress.
+
+## Inputs
+
+One of:
+- A GitHub PR number, e.g. `#834`
+- The current branch
+- In autonomous mode, the single open PR a merge loop just produced
 
 ## Modes
 
-- **Interactive** (default) — a human is present. Ask when the target PR is ambiguous; confirm before the final merge.
-- **Autonomous** (`auto` argument, e.g. from the merge loop) — no human present. Never prompt. Merge **only** when every gate passes; otherwise leave the PR open and report why. End the run with exactly one sentinel on its own line:
-  - `<<<MERGED #N>>>` — merged.
-  - `<<<MERGE_BLOCKED #N reason>>>` — a gate failed; PR left open, reason commented on the PR.
-  - `<<<NO_OPEN_PR>>>` — no PR to act on.
+**Interactive (default).** A human is present. Ask when the target PR is
+ambiguous. Confirm before the final merge.
 
-  **Run every layer to the end in one go.** No layer's output is the deliverable, and no sub-skill
-  you invoke (`/security-review` especially) ends the run when it returns — you resume at the next
-  layer. Do not pause to report progress, do not stop because checks are still running (wait on
-  them: `gh pr checks <#> --watch`), and do not end a turn without a sentinel. Stopping early is
-  indistinguishable from failing, so the whole run is discarded and repeated at full cost.
+**Autonomous (`auto` argument).** No human is present. Never prompt. Merge only
+when every gate passes. Otherwise leave the PR open and report why.
 
-  **Delegate the report-producing layers to subagents.** `/review`, `/code-review`,
-  `/security-review` and `/verify` are each built to *finish* with a report, and that terminal
-  framing is what ends this run when you invoke them inline — prose reminders have twice failed to
-  prevent it. Run each in a subagent instead, so "produce the report and stop" lands on the
-  subagent and the findings come back to you as a result to act on. Observed 2026-08-03 in the
-  admin loop: one merge log is 54 lines of code review of PR #826, the next is 9 lines of security
-  review of PR #834 — both immaculate, both ending mid-pipeline with no sentinel and no merge, each
-  discarding a full review.
+End an autonomous run with exactly one sentinel, alone on the final line:
 
-  The delegation only works if the hand-back is explicit, so tell every such subagent, in its prompt:
+```
+<<<MERGED #N>>>
+<<<MERGE_BLOCKED #N reason>>>
+<<<NO_OPEN_PR>>>
+```
 
-  - **It is a reporter, not the decision-maker.** Its job is to find and evidence; yours is to
-    triage, patch, gate and merge. It returns findings — it never decides the merge.
-  - **It must not act on the PR.** No `gh pr merge`, no `gh pr comment`, no pushing, no editing the
-    ticket. If it needs to change a file to prove a finding, it says so and reverts.
-  - **It must never write a sentinel.** `<<<MERGED …>>>`, `<<<MERGE_BLOCKED …>>>` and
-    `<<<NO_OPEN_PR>>>` are yours alone. The runner greps the whole log line-anchored, so a sentinel
-    quoted inside a subagent's report is read as *your* verdict — a stray `MERGE_BLOCKED` in a
-    review would stop the loop on a healthy PR.
-  - **It returns structured findings**, each with file, line, severity and the concrete failure —
-    not a narrative you have to re-read to act on.
+Rules for sentinels:
+1. Write a sentinel only when it is your final verdict.
+2. Write it on its own line, as the last thing you output.
+3. Never quote a sentinel in prose you are not emitting. The runner greps the
+   log line-anchored, so a quoted `MERGE_BLOCKED` is read as your verdict and
+   will stop the loop on a healthy PR.
+4. Never end a turn without one.
 
-  When a subagent returns, you are mid-pipeline by definition. Say which layer just closed and which
-  is next before doing anything else; that single line is what makes stopping here feel as wrong as
-  it is. A returned report is an input, never an ending.
+Stopping early is indistinguishable from failing. The whole run is discarded and
+repeated at full cost.
 
-  **Never end the run while work is in flight** — a CI job, a backgrounded suite, a rebuilding
-  container. "I'll check back once CI completes and merge if it's green" is a failed run: nothing
-  checks back. Wait, read the result, then merge or block. And never *narrate* a sentinel you are
-  not emitting ("…otherwise report `<<<MERGE_BLOCKED …>>>`") — write a sentinel only when it is
-  your verdict, on its own line, as the last thing you output.
+## Step 1 — Set the risk tier
 
-  **Leave the working tree clean.** This skill edits files — it patches findings, corrects docs,
-  merges base in — and an autonomous loop re-syncs its worktree at the *start* of the next cycle,
-  so anything left uncommitted stops that loop outright with "working tree has uncommitted changes
-  — refusing to touch it". Before emitting any sentinel, `git status --porcelain` must be empty:
-  commit and push what belongs to the PR, revert what does not. This is not housekeeping — a
-  one-line comment edit left behind while reviewing PR #834 is what took the admin loop down, and
-  salvage only runs at cycle *end*, so it cannot rescue a tree that is already dirty at startup.
+Do this first. The tier sets how deep every later step goes. A PR inherits the
+**highest** tier any hunk touches. If you are unsure between two tiers, pick the
+higher one.
 
-## Risk tier — set this first
+| Tier | The diff contains |
+|---|---|
+| **Low** | Move-only refactor, import or dead-code cleanup, docs, comments. Renames and import paths only, no logic change. |
+| **Medium** | Frontend form or UI change, API DTO or validation change, a new non-privileged endpoint, dependency bumps. |
+| **High** | Auth or JWT, multi-tenant isolation (RLS, org scoping), payments, legal or immutable documents, PII (TFN, passport, bank), DB migrations, background jobs, file upload or storage. |
 
-Classify before running anything; the tier sets how deep every later layer goes. A PR inherits the **highest** tier any hunk touches. When unsure, tier up.
+State the tier explicitly before continuing.
 
-- **Low** — move-only refactor, import/dead-code cleanup, docs, comments. Diff is renames + import paths, no logic change.
-- **Medium** — frontend form/UI change, API DTO or validation change, a new non-privileged endpoint, dependency bumps.
-- **High** — auth/JWT, multi-tenant isolation (RLS / org scoping), payments, legal or immutable documents, PII (TFN/passport/bank), DB migrations, background jobs, file upload/storage.
+## Step 2 — Resolve, trace and scope
 
-## The layers — cheapest first
+1. Resolve the target PR in this order:
+   a. An explicit `#N` argument → use it.
+   b. Else the open PR for the current branch: `gh pr view --json number`.
+   c. Else the single open PR on base: `gh pr list --state open --base <base>`.
+2. If several match: interactive → ask which. Autonomous → emit
+   `<<<MERGE_BLOCKED #N several-open-prs>>>` and stop.
+3. If none match: autonomous → emit `<<<NO_OPEN_PR>>>` and stop.
+4. Run `gh pr checkout <#>`. Steps 5–7 must run against local code.
+5. Read the PR body. Follow it to the linked ticket. Read that ticket.
+   - Its acceptance criteria are **the contract** — what must work.
+   - Its `**App:**` line names the owning context, used by the security gate.
+   - No linked ticket → the PR description is the contract.
+6. Read the diff. Confirm every hunk serves that contract. Check for:
+   - Logic changes outside the contract
+   - Stray config, env or secret edits
+   - Accidental renames
+7. If the diff is out of scope: interactive → surface it to the user.
+   Autonomous → emit `<<<MERGE_BLOCKED #N out-of-scope>>>` and stop.
 
-Run in order. Each layer's completion criterion must hold before the next. Depth scales with the risk tier.
+**Do not continue until:** the PR is checked out, the contract is read, and the
+diff is confirmed in scope.
 
-### 1. Resolve, trace, scope
+## Step 3 — Code review
 
-**Resolve the target PR**, in order: an explicit `#N` argument → that; else the open PR for the current branch (`gh pr view --json number`); else the single open PR on base (`gh pr list --state open --base <base>`). Interactive: if several match, ask which. Autonomous: zero → emit `<<<NO_OPEN_PR>>>` and stop; more than one → emit `<<<MERGE_BLOCKED several-open-prs>>>` and stop. Then `gh pr checkout <#>` so layers 4–6 run against local code.
+1. Run `codex review` against the branch.
+2. Set depth from the tier: low → default. Medium → ask for a thorough pass.
+   High → ask for an exhaustive pass and review the diff yourself as well.
+3. Triage every correctness finding it returns. For each one, do exactly one of:
+   - Fix it on the branch.
+   - Dismiss it with a one-line reason.
+4. Do not leave a finding unaddressed. "Probably fine" is not a dismissal —
+   write the reason.
 
-**Trace the PR to its work.** Read the PR body, follow it to the **linked ticket**, and read that ticket: its acceptance criteria are **the contract** (what must work), and its `**App:**` line names the owning context (used by the security gate). No linked ticket → fall back to the PR description as the contract.
+**Do not continue until:** every correctness finding is fixed or explicitly
+dismissed in writing.
 
-**Confirm scope.** Read the diff and confirm it is **scoped** to that contract — no logic change outside it, no stray config/env/secret edits, no accidental renames. Out-of-scope hunks → interactive: surface to the user; autonomous: `<<<MERGE_BLOCKED #N out-of-scope>>>`.
+## Step 4 — Security gate (blocking)
 
-**Done:** target PR resolved + checked out; ticket contract + owning context read; diff confirmed in-scope, or blocked.
+There is no automated security review on this host. Walk the checklist yourself.
+See `## Degraded vs Claude` at the end of this file for what that costs you.
 
-### 2. Code review
+1. Read the full diff once, looking only for security defects. Check each:
+   - Authentication or authorisation removed, weakened or bypassed
+   - Tenant or org scoping missing from a query, so one tenant can read another's rows
+   - User input reaching SQL, a shell, a file path or a template unsanitised
+   - Secrets, tokens or keys added to code, config, logs or error messages
+   - A new endpoint without an auth guard
+   - Permission checks done in the frontend only
+   - PII (TFN, passport, bank details) logged, returned in an API response, or stored unencrypted
+   - File upload without type, size or path validation
+   - A dependency bump that pulls in a known-vulnerable version
+2. If the tier is High, also run the matching hand-checks in
+   [`references/risk-playbooks.md`](references/risk-playbooks.md).
+3. Sort every finding into high/critical or medium/low.
+4. For each **high or critical** finding:
+   a. Patch it on the PR branch yourself.
+   b. Push, so CI re-validates.
+   c. Re-read the changed area to confirm the fix holds.
+   d. Repeat until none remain.
+5. If you cannot safely patch one — it is ambiguous or too large — then:
+   interactive → surface it. Autonomous → emit
+   `<<<MERGE_BLOCKED #N security:<finding>>>` and stop.
+6. For each **medium or low** finding: append it to the owning context's
+   `SECURITY.md` as a deferred finding. Format and file resolution are in
+   [`references/risk-playbooks.md`](references/risk-playbooks.md). These do not
+   block the merge.
 
-- A reviewable GitHub PR → `/review <PR#>`.
-- Working diff with no PR yet → `/code-review` at effort **medium** (low risk), **high** (medium risk), or **max** (high risk).
+**Do not continue until:** zero unresolved high or critical findings, and every
+medium or low finding is recorded in the owning `SECURITY.md`.
 
-Autonomous runs delegate this to a subagent and act on what it returns — see *Modes*. Inline, the
-review's own "report and finish" framing ends the whole run here.
+## Step 5 — Static checks
 
-**You** triage every correctness finding the review returns — fix it on the branch, or dismiss it with a one-line reason. The subagent only reports; patching is yours. On low/medium-risk diffs, optionally run `/simplify` for quality-only cleanup (it does not hunt bugs).
+1. Discover the commands first. Read `package.json` scripts and
+   `.github/workflows`. Do not guess command names.
+2. Run, across the affected workspace: **typecheck**, then **lint**, then
+   **build**.
+3. Fix every failure before continuing.
 
-**Done:** every correctness finding fixed or explicitly dismissed.
+The build is the strongest cheap net here. It catches broken imports, missing
+exports, DTO mismatches, bad prop and service signatures, and most module wiring.
 
-### 3. Security gate — blocking
+**Do not continue until:** typecheck, lint and build are all green.
 
-Run `/security-review` on the branch — autonomous: in a subagent, see *Modes*. Split findings by
-severity:
+## Step 6 — Automated tests
 
-- **High/critical** — **you** (never the reporting subagent) **patch each on the PR branch, push, and re-run `/security-review`** — a fresh subagent — until none remain (the push lets CI re-validate). Cannot safely patch (ambiguous or large) → interactive: surface; autonomous: `<<<MERGE_BLOCKED #N security:<finding>>>`.
-- **Medium/low** — not blockers. Append each to the owning context's `SECURITY.md` as a deferred finding to be fixed later — format + file resolution in [`references/risk-playbooks.md`](references/risk-playbooks.md). Then continue.
+1. Run tests against the Docker stack. Never against a dev server.
+2. Rebuild and restart the affected service. Wait until it reports healthy.
+3. Run the suite.
+4. If the PR changes behaviour, a test must fail before the change and pass
+   after. If no such test exists, write one.
+5. If the PR is low tier and move-only, an existing green suite is sufficient —
+   no behaviour was intended to change.
 
-High-risk tiers (auth, multi-tenant, PII, legal/immutable docs, file upload) → also run the matching hand-checks in [`references/risk-playbooks.md`](references/risk-playbooks.md) on top of the automated review.
+**Do not continue until:** the suite is green in Docker and every behaviour
+change is covered by a test.
 
-**Done:** zero unresolved high/critical findings; every medium/low recorded in the owning `SECURITY.md`.
+## Step 7 — Runtime verify
 
-> **`/security-review` returning does NOT end this run.** It is one layer of `do-pr`, not the task.
-> Its report is an input to the merge decision, never the deliverable — do not summarise it and stop.
-> The moment it returns, continue to layer 4 and keep going through the CI gate and the merge. In an
-> autonomous run the only acceptable endings are `<<<MERGED #N>>>`, `<<<MERGE_BLOCKED #N reason>>>`
-> or `<<<NO_OPEN_PR>>>`; a security summary with no sentinel is a failed run and gets retried from
-> scratch at full cost. This is the most common way this workflow goes wrong.
+1. Boot the affected service or services.
+2. Exercise the real path: the happy path, then one failure path, then one edge
+   case.
+3. Watch the logs while you do it. A green build hides dependency-injection
+   errors, module wiring errors, migration errors and console errors. NestJS
+   provider and controller wiring is the most common offender.
+4. If the tier is High, run the domain hand-checks in
+   [`references/risk-playbooks.md`](references/risk-playbooks.md):
+   cross-tenant access, auth boundaries, migration against a clean **and** an
+   existing database, API contract front-to-back, failure and observability paths.
 
-### 4. Static checks
+**Do not continue until:** the affected path is exercised at the depth the tier
+demands, with no runtime errors.
 
-Discover commands first (`package.json` scripts, `.github/workflows`). For a TypeScript monorepo, run across the affected workspace: **typecheck · lint · build**. The TS build is the strongest cheap net — it catches broken imports, missing exports, DTO mismatches, bad prop/service signatures, and much module wiring.
+## Step 8 — CI and merge
 
-**Done:** typecheck + lint + build all green.
+1. Wait for CI to complete: `gh pr checks <#> --watch`. Bound it with a timeout.
+2. Never merge on pending checks.
+3. If CI does not go green within the timeout: autonomous → emit
+   `<<<MERGE_BLOCKED #N ci-timeout>>>` and stop.
+4. If the branch is behind base, **merge base into the branch**. Do not rebase —
+   the force-push a rebase needs is hook-blocked, and it corrupts migrations and
+   shared files.
+5. State the merge decision plainly, covering all seven:
+   - requirement met
+   - diff scoped
+   - build green
+   - tests green
+   - CI green
+   - runtime path exercised
+   - security gate clean
+6. If any gate is still red, do not merge. Autonomous → emit
+   `<<<MERGE_BLOCKED #N reason>>>` and stop.
+7. Merge **without** `--delete-branch`:
+   - Interactive → confirm with the user first, then `gh pr merge <#> --merge`.
+   - Autonomous → `gh pr merge <#> --merge`, then emit `<<<MERGED #N>>>`.
 
-### 5. Automated tests
+Deleting the branch auto-closes any PR stacked on it. A `--delete-branch` merge
+silently kills dependent PRs. Prune merged branches separately, and only ever
+delete a branch that no open PR uses as its base.
 
-Run tests **against the Docker stack, never a dev server** — rebuild + restart the affected service, wait healthy, then test. For a behaviour change, a test must fail before the change and pass after; add one if missing. Low-risk move-only PRs: existing suite green is enough (no behaviour intended).
+## Step 9 — Leave the tree clean
 
-**Done:** suite green in Docker; every behaviour change covered by a test.
+Before you emit any sentinel, `git status --porcelain` must be empty.
 
-### 6. Runtime verify
+1. Commit and push anything that belongs to the PR.
+2. Revert anything that does not.
 
-`/verify` — boot the affected service(s) and exercise the real path: happy path + one failure path + one edge case. Watch logs for DI / module-wiring / migration / console errors a green build hides (NestJS provider/controller wiring especially). Autonomous: in a subagent, see *Modes* — this is the last layer that produces a report, and the one most likely to feel like an ending when it is not.
-
-High risk → run the domain hand-checks in [`references/risk-playbooks.md`](references/risk-playbooks.md): cross-tenant access, auth boundaries, migration on clean **and** existing DB, API contract front↔back, failure/observability paths.
-
-**Done:** affected path exercised at the depth the risk tier demands, with no runtime errors.
-
-### 7. CI + merge
-
-Wait for CI to **complete** — never merge on pending: `gh pr checks <#> --watch`, bounded by a timeout. Require all green, and the branch up to date with base — if behind, **merge base into the branch** (never rebase a pushed PR branch: the force-push it needs is hook-blocked; matters most for migrations and shared files). CI never goes green within the timeout → autonomous: `<<<MERGE_BLOCKED #N ci-timeout>>>`.
-
-State the merge decision plainly: requirement met · diff scoped · build + tests + CI green · runtime path exercised · security gate clean · DB/migration risk handled. Any gate above still red → do not merge (autonomous: `<<<MERGE_BLOCKED #N reason>>>`).
-
-**Never delete the branch at merge.** Deleting a branch auto-closes any open PR stacked on it (one based on it), so a `--delete-branch` merge silently kills dependent PRs. Merge **without** `--delete-branch`; prune merged branches separately, and only ever delete a branch that no open PR still uses as its base.
-
-- **Interactive** — merging is hard to reverse; confirm with the user, then `gh pr merge <#> --merge`.
-- **Autonomous** — `gh pr merge <#> --merge`, then emit `<<<MERGED #N>>>`.
-
-**Done:** `git status --porcelain` empty; merged (interactive: on the user's go-ahead); outcome reported — autonomous runs end with exactly one sentinel.
+This is not housekeeping. An autonomous loop re-syncs its worktree at the
+*start* of the next cycle, so anything left uncommitted stops that loop outright
+with "working tree has uncommitted changes — refusing to touch it". Salvage only
+runs at cycle end, so it cannot rescue a tree that is already dirty at startup.
 
 ## Reporting
 
-Alongside the standard change summary, report: the **risk tier**, the **security-gate result** (high/critical patched + clean; where medium/low were deferred), and the merge outcome.
+Alongside the standard change summary, report exactly three things:
+
+1. The risk tier.
+2. The security-gate result — which high/critical findings you patched, and
+   where medium/low were deferred.
+3. The merge outcome.
+
+## Degraded vs Claude
+
+**What Claude does that this cannot.** Claude's `do-pr` delegates each
+report-producing layer to a parallel sub-agent with a named type, and runs
+`/security-review` — a dedicated, purpose-built security pass — as its own
+layer. It also has `/code-review` at selectable effort levels and `/verify` as
+a first-class runtime-verification skill.
+
+**Why this host cannot.** Codex has no equivalent of `/security-review`,
+`/code-review` or `/verify`, and this skill runs sequentially in one context
+rather than fanning out. `codex review` covers the code-review layer only.
+
+**What you must do to compensate.**
+
+1. Step 4 replaces a real security review with a checklist you walk yourself.
+   **Do not treat a clean pass here as a security review.** It is a smoke test.
+2. On any High-tier PR — auth, multi-tenant, payments, PII, legal documents,
+   file upload — read `references/risk-playbooks.md` in full and run every
+   hand-check it lists. On Claude that is belt-and-braces. Here it is your only
+   real coverage.
+3. Because everything runs in one context, you accumulate context across all
+   nine steps. If the diff is large, re-read the diff before Step 4 rather than
+   relying on what you remember from Step 2.
+4. If the PR touches money, credentials or personal data and you have any doubt,
+   block it and ask a human. A missed finding here is not caught later.

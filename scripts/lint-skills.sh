@@ -69,9 +69,19 @@ report() {
   fi
 }
 
+# The '## Degraded vs Claude' block exists to name the Claude capabilities this
+# host lacks, so it necessarily mentions them. Scanning it would flag the very
+# documentation the contract requires. Truncate there; line numbers in the kept
+# portion are unaffected because we only ever drop the tail.
+body_before_degraded() {
+  sed '/^## Degraded vs Claude/,$d' "$1"
+}
+
 scan_rules() {
   local file="$1"; shift
-  local found_here=0 rule pattern label
+  local found_here=0 rule pattern label body
+  body="$(mktemp)"
+  body_before_degraded "$file" > "$body"
   for rule in "$@"; do
     pattern="${rule%%:::*}"
     label="${rule##*:::}"
@@ -79,8 +89,9 @@ scan_rules() {
       [ -n "$lineno" ] || continue
       report "$file" "$lineno" "$label" "$(echo "$text" | sed 's/^[[:space:]]*//' | cut -c1-90)"
       found_here=1
-    done < <(grep -nE "$pattern" "$file" 2>/dev/null)
+    done < <(grep -nE "$pattern" "$body" 2>/dev/null)
   done
+  rm -f "$body"
   return $found_here
 }
 

@@ -1,0 +1,58 @@
+{
+  "_comment": [
+    "Skill routing policy. Membership comes from the filesystem — setup globs each",
+    "set directory — so this file never drifts from what is actually on disk.",
+    "It declares only what cannot be inferred: which hosts a set feeds, and the",
+    "per-skill exceptions.",
+    "",
+    "hosts:  claude   -> ~/.claude/skills/<name>",
+    "        codex    -> ~/.codex/skills/<name>",
+    "        opencode -> ~/.config/opencode/skills/<name>",
+    "",
+    "Each entry is an individual symlink back into this repo, so editing the",
+    "installed file edits the tracked file. See PLAN.md for the reasoning."
+  ],
+
+  "hostSkillDirs": {
+    "claude": "~/.claude/skills",
+    "codex": "~/.codex/skills",
+    "opencode": "~/.config/opencode/skills"
+  },
+
+  "sets": {
+    "claude": {
+      "dir": "skills/claude",
+      "hosts": ["claude"],
+      "dialect": "claude",
+      "lint": true
+    },
+    "codex": {
+      "dir": "skills/codex",
+      "hosts": ["codex", "opencode"],
+      "dialect": "gpt",
+      "lint": true
+    },
+    "external": {
+      "dir": "skills/external",
+      "hosts": ["claude", "codex", "opencode"],
+      "dialect": "none",
+      "lint": false
+    }
+  },
+
+  "overrides": {
+    "codex/do-pr": {
+      "hosts": ["codex"],
+      "degraded": true,
+      "why": "Uses the Codex-native stack (codex review, ~/.codex/agents/, ~/.codex/prompts/). OpenCode has none of these, so it is never linked there."
+    }
+  },
+
+  "npmSkills": {
+    "sogni": {
+      "package": "@sogni-ai/sogni-creative-agent-skill",
+      "hosts": ["claude", "codex", "opencode"],
+      "why": "Ships its own SKILL.md, references/ and sub-skills via npm. Symlinked from the global install so 'npm update -g' takes effect; never vendored."
+    }
+  }
+}

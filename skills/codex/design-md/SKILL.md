@@ -1,7 +1,6 @@
 ---
 name: design-md
 description: Synthesize a semantic design system into a DESIGN.md by analyzing an app's existing UI — CSS tokens, component code, and rendered screenshots. Produces the canonical design-context file consumed by the design-review skill and frontend-review agent.
-allowed-tools: Read Write Grep Glob WebFetch
 ---
 
 # DESIGN.md Skill

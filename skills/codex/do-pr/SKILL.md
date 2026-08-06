@@ -18,6 +18,15 @@ you patch, you gate, you merge.
 4. Never rebase a pushed PR branch. Merge base into it instead.
 5. Leave `git status --porcelain` empty before you finish.
 6. Run every layer to the end in one go. Do not stop to report progress.
+7. **Never hand a wait to anything outside your own turn.** The runner spawns you
+   with `codex exec`: single-shot. Your final message ends the process, so a
+   watcher, a background shell task, a wake-on-event or a still-running sub-agent
+   dies with it — there is no next turn to wake into. When a wait outlives one
+   shell call, make the call again. Twice on 2026-08-04 a merge agent hit the
+   command timeout on `gh run watch`, armed a watcher, wrote "it will wake me when
+   it reaches a terminal state" and ended the turn — PRs #849 ($14.18) and #850
+   ($11.36), each burning a full cycle before a retry merged the already-green PR
+   in seconds.
 
 ## Inputs
 

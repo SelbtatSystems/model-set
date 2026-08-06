@@ -6,7 +6,7 @@
 
 **Code** — No bloated abstractions, premature generalization, or unexplained cleverness. Match existing codebase style. Meaningful variable names.
 
-**Communication** — Concise and direct about problems; clarity wins when the two conflict. Quantify ("~200ms latency", not "might be slower"). When stuck, say so + what you tried; don't hide uncertainty behind confidence. Explain technical decisions in short, simple sentences, as to someone early in their development journey.
+**Communication** — Talk in ASD-STE100 Simplified Technical English. Concise and direct about problems; clarity wins when the two conflict. Quantify ("~200ms latency", not "might be slower"). When stuck, say so + what you tried; don't hide uncertainty behind confidence. Explain technical decisions in short, simple sentences, as to someone early in their development journey.
 
 **Change Summary** — after a nontrivial modification (new behavior, refactor, multi-file change — not typo/rename/formatting):
 "**Changes**: [file]: [what+why]

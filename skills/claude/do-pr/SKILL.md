@@ -57,6 +57,16 @@ This skill orchestrates the focused review skills (`/code-review`, `/review`, `/
   not emitting ("…otherwise report `<<<MERGE_BLOCKED …>>>`") — write a sentinel only when it is
   your verdict, on its own line, as the last thing you output.
 
+  **Arming a background watcher and ending the turn is the same failure — and it is the one that
+  keeps happening.** The runner spawns you with `claude --print`: single-shot. Your final message
+  ends the process, and any Monitor, background Bash task or wake-on-event you armed dies with it.
+  There is no next turn to wake into. That escape hatch is real in an interactive session and does
+  not exist here. Twice on 2026-08-04 a merge agent hit the Bash timeout on `gh run watch`, armed a
+  Monitor, wrote "the monitor will wake me when it reaches a terminal state" and ended the turn —
+  PR #849 ($14.18) and PR #850 ($11.36), each burning a full cycle before a retry merged the
+  already-green PR in seconds. **When a wait outlives one Bash call, make the call again.** Never
+  hand the waiting to anything outside your own turn.
+
   **Leave the working tree clean.** This skill edits files — it patches findings, corrects docs,
   merges base in — and an autonomous loop re-syncs its worktree at the *start* of the next cycle,
   so anything left uncommitted stops that loop outright with "working tree has uncommitted changes
@@ -140,7 +150,18 @@ High risk → run the domain hand-checks in [`references/risk-playbooks.md`](ref
 
 ### 7. CI + merge
 
-Wait for CI to **complete** — never merge on pending: `gh pr checks <#> --watch`, bounded by a timeout. Require all green, and the branch up to date with base — if behind, **merge base into the branch** (never rebase a pushed PR branch: the force-push it needs is hook-blocked; matters most for migrations and shared files). CI never goes green within the timeout → autonomous: `<<<MERGE_BLOCKED #N ci-timeout>>>`.
+Wait for CI to **complete** — never merge on pending. Require all green, and the branch up to date with base — if behind, **merge base into the branch** (never rebase a pushed PR branch: the force-push it needs is hook-blocked; matters most for migrations and shared files).
+
+**One watch call cannot outlast this repo's CI.** A single Bash call is capped at ~590s; CI here runs 12–14 minutes. So `gh pr checks <#> --watch` (or `gh run watch`) *will* time out on a fresh push, and a timed-out watch is **not a result** — it is a call you have to make again:
+
+```bash
+# repeat this exact call until it returns a terminal state; each one is a fresh Bash call
+gh run watch <run-id> --exit-status 2>&1 | tail -5; echo "RC=$?"
+# or poll cheaply between watches
+gh run view <run-id> --json status,conclusion --jq '{status,conclusion}'
+```
+
+Budget about four such calls (~40 min) before treating CI as genuinely stuck. Do **not** replace the repeated call with a Monitor, a background task, or ending your turn — see *Never end the run while work is in flight* above. CI never goes green within that budget → autonomous: `<<<MERGE_BLOCKED #N ci-timeout>>>`.
 
 State the merge decision plainly: requirement met · diff scoped · build + tests + CI green · runtime path exercised · security gate clean · DB/migration risk handled. Any gate above still red → do not merge (autonomous: `<<<MERGE_BLOCKED #N reason>>>`).
 

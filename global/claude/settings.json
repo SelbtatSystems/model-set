@@ -63,20 +63,25 @@
   },
   "enabledMcpjsonServers": [
     "postgres",
-    "context7",
-    "aiguide"
+    "context7"
   ],
-  "disabledMcpjsonServers": [
-    "aiguide"
-  ],
+  "disabledMcpjsonServers": [],
   "disableClaudeAiConnectors": true,
   "skillOverrides": {
-    "composition-patterns": "off",
-    "data-story-telling": "off",
-    "frontend-design": "off",
+    "data-story-telling": "user-invocable-only",
+    "design-md": "user-invocable-only",
+    "do-plan": "user-invocable-only",
+    "docs-loop": "off",
+    "enhance-prompt": "user-invocable-only",
+    "gpt-image": "user-invocable-only",
     "react-native-skills": "off",
-    "research": "off",
-    "writing-guidelines": "off"
+    "research": "user-invocable-only",
+    "seedance-video": "user-invocable-only",
+    "sogni": "user-invocable-only",
+    "sogni-creative-agent:loop-maker": "user-invocable-only",
+    "sogni-creative-agent:sogni-creative-agent": "user-invocable-only",
+    "tdd": "user-invocable-only",
+    "writing-guidelines": "user-invocable-only"
   },
   "disableArtifact": true,
   "statusLine": {

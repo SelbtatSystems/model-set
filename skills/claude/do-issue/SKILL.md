@@ -16,6 +16,24 @@ Build one `ready-for-agent` ticket to done — the executor end of `to-prd` → 
 > that is a blocker to state as one, not a reason to end mid-lifecycle. (Observed twice on
 > 2026-08-02: two agents spent $18 between them and shipped nothing.)
 
+> **Arming a background watcher, or delegating and ending the turn, is the same failure — and it
+> is the one that keeps happening.** The runner spawns you with `claude --print`: single-shot.
+> Your final message ends the process, and any Monitor, background Bash task, wake-on-event or
+> still-running sub-agent dies with it. There is no next turn to wake into. That escape hatch is
+> real in an interactive session and does not exist here. On 2026-08-05 a build agent finished
+> map-evolution ticket 09 — 816 verified lines, backend e2e 14/14, backend units 1887/1887 — then
+> wrote "the only outstanding item is the browser verification agent; I'll commit and PR as soon
+> as it reports" and ended the turn. $37.84 spent, nothing committed, no PR, and the loop's ledger
+> held a branch that did not exist on the remote. **When a wait outlives one Bash call, make the
+> call again.** Never hand the waiting to anything outside your own turn.
+
+> **Commit as soon as the gate is green — never hold a verified slice uncommitted while waiting on
+> anything.** That one habit turns every failure above into a recoverable one. What made ticket 09
+> worse than a lost turn was its migration: already applied to the worktree's database, but absent
+> from the base branch once the abandoned unit branch was left behind — an *orphaned* migration,
+> which `db:check` fails on. The loop could then not restart to merge the very PR that would have
+> cleared it, and a human had to break the deadlock by hand.
+
 The tracker spec — where tickets live, the issue file format, the find-work command, and the triage roles — is defined in `docs/agents/issue-tracker.md` + `docs/agents/triage-labels.md` (reached via the repo's `## Agent skills` block). Read them; this skill does not restate them. If that config is missing, stop and ask the user where the tracker config lives — do not guess a tracker layout.
 
 ## Process

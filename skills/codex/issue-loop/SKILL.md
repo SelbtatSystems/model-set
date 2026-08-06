@@ -27,8 +27,11 @@ for an agent. Start it from the repo root of the worktree that should do the wor
 
 ## What one cycle does
 
-1. Sync the worktree branch ff-only to origin/main (stops on dirty tree or a pulled migration —
-   apply it to this worktree's DB, then restart).
+1. Resolve the worktree root, sync its branch ff-only to origin/main, then run the repository's
+   migration-ledger check. Ledger-pending migrations are safety-scanned and non-destructive ones
+   are applied through `npm run db:migrate`; destructive SQL, a missing one-time baseline, or a
+   failed ledger check stops for a human. The loop never executes SQL files directly and ignores
+   inert `db/migrations/pre-launch/` history.
 2. Merge any open PR this loop previously created (`do-pr auto`, tracked by branch in a state
    file — other pipelines' PRs are never touched).
 3. Count the folder's `**Triage:**` lines:

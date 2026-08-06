@@ -13,6 +13,15 @@ set -uo pipefail   # NOT -e: the loop decides what is fatal, line by line
 
 TRACKER_DIR="${1:-}"
 
+# All relative paths belong to the worktree root. Resolve it before LOG_DIR,
+# Docker paths, locks, or tracker state are created so starting the loop from a
+# subdirectory cannot silently create a second state directory or break Docker.
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  printf 'issue-loop: not inside a git worktree\n' >&2
+  exit 1
+}
+cd "$REPO_ROOT" || exit 1
+
 # ---- config --------------------------------------------------------------
 CYCLE_MINUTES="${CYCLE_MINUTES:-30}"      # wait between cycles (also CI settle time)
 MAIN_BRANCH="${MAIN_BRANCH:-main}"        # integration branch: PRs target it, merges land here
@@ -20,12 +29,7 @@ BASE_BRANCH="${BASE_BRANCH:-}"            # this worktree's own branch; empty = 
 LOG_DIR="${LOG_DIR:-./issue-loop-logs}"
 STOP_FILE="${STOP_FILE:-.issue-loop-stop}"  # touch it to stop THIS loop only
 MAX_FAILS="${MAX_FAILS:-3}"               # consecutive failed cycles → stop
-AUTO_MIGRATE="${AUTO_MIGRATE:-1}"         # 1 = apply purely additive migrations here; 0 = always stop for a human
-DOCKER_DIR="${DOCKER_DIR:-./infrastructure/docker}"
-DC_ENV_FILE="${DC_ENV_FILE:-../../.env}"  # relative to DOCKER_DIR (matches the dc() helper)
-DB_USER="${DB_USER:-agcore_user}"
-DB_NAME="${DB_NAME:-agcore_db}"
-PULLED_MIGRATIONS=()                      # filled by prep_worktree each sync
+AUTO_MIGRATE="${AUTO_MIGRATE:-1}"         # 1 = apply ledger-pending migrations; 0 = always stop for a human
 MAIN_MODEL="${MAIN_MODEL:-fable}"         # build + triage agent model
 PR_MODEL="${PR_MODEL:-opus}"              # merge agent model
 # Both phases run on the second Claude account by default; pass an empty value to use the
@@ -232,7 +236,7 @@ preflight() {
 }
 
 # ---- git prep (same contract as the other loops) ---------------------------
-# returns 1 = fatal (dirty / diverged / git failure), 2 = new migrations pulled (human apply)
+# returns 1 = fatal (dirty / diverged / git failure)
 prep_worktree() {
   step "Syncing worktree branch '${BASE_BRANCH}' with origin/${MAIN_BRANCH}…"
   if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -241,67 +245,188 @@ prep_worktree() {
   fi
   git switch "$BASE_BRANCH"  2>>"$LOG_DIR/git.log" || { err "switch to $BASE_BRANCH failed"; return 1; }
   git fetch origin           2>>"$LOG_DIR/git.log" || { err "fetch failed"; return 1; }
-  local before; before=$(git rev-parse HEAD)
   git merge --ff-only "origin/${MAIN_BRANCH}" 2>>"$LOG_DIR/git.log" \
     || { err "cannot fast-forward ${BASE_BRANCH} to origin/${MAIN_BRANCH} (diverged?) — needs a human"; return 1; }
   ok "'${BASE_BRANCH}' up to date with origin/${MAIN_BRANCH}."
-  # Worktree DBs are separate, so a pulled migration must be applied HERE before the
-  # loop can trust what it sees. The caller decides how (see apply_migrations).
-  mapfile -t PULLED_MIGRATIONS < <(git diff --name-only "$before" HEAD -- db/migrations/ 2>/dev/null)
-  if [ "${#PULLED_MIGRATIONS[@]}" -gt 0 ]; then
-    warn "New migrations pulled into ${BASE_BRANCH}:"
-    printf '    %s\n' "${PULLED_MIGRATIONS[@]}"
-    return 2
-  fi
   return 0
 }
 
 # ---- migrations ------------------------------------------------------------
-# The loop is not approving a migration — it already merged through the review gate.
-# It is syncing THIS worktree's dev database to code that is already on main, so the
-# only thing worth stopping for is what would irreversibly destroy local dev DATA:
-# dropping a table/column/schema, truncating, deleting rows, or rewriting a column type.
-#
-# Dropping a POLICY, FUNCTION, INDEX, TRIGGER or CONSTRAINT loses no rows — and
-# drop-and-recreate is the ordinary shape of a policy rewrite, so stopping on those
-# stalled the loop twice on migrations that were perfectly safe (2026-07-31).
-# Accepted trade-off: a migration that drops policies WITHOUT recreating them would
-# quietly reduce RLS coverage on this dev DB and no longer pause the loop.
-#
-# A MATERIALIZED VIEW is out for the same reason (2026-08-02): it holds only derived rows
-# that its own refresh rebuilds, and it cannot be altered in place — so drop-and-recreate is
-# the only way to redefine one. Treating that as data loss took every loop on the fleet down
-# over a single matview redefinition. A plain VIEW drop still stops the loop; only the
-# MATERIALIZED form is exempt.
-#
-# Still biased to stop: an unrecognised destructive-looking statement counts as unsafe.
-# Comments are stripped first so a DROP mentioned in a comment does not halt the loop.
+# Git path diffs are not migration state: pre-launch history is inert, and a
+# directly executed SQL file would bypass the checksum ledger. The tracked
+# runner is the sole authority for pending files, advisory locking, transactions,
+# and ledger writes. The loop still protects local dev data by handing a pending
+# migration with destructive SQL to a human instead of auto-applying it.
 DESTRUCTIVE_SQL='\bDROP[[:space:]]+(TABLE|COLUMN|SCHEMA|DATABASE|SEQUENCE|VIEW|TYPE|EXTENSION|ROLE|USER)\b|\bTRUNCATE\b|\bDELETE[[:space:]]+FROM\b|\bALTER[[:space:]]+COLUMN\b[^;]*\bTYPE\b|\bRENAME\b'
-migration_is_additive() {
-  local sql
-  sql=$(sed -e 's/--.*$//' "$1" | tr '\n' ' ')
-  ! printf '%s' "$sql" | grep -qiE "$DESTRUCTIVE_SQL"
+# Only the SQL that runs when the file is applied — comments and CREATE FUNCTION
+# bodies removed. A function body is a definition: its DELETE runs when something
+# calls the function, never at apply time, so a migration that merely defines a
+# retention function deletes nothing. A DO block is the opposite — it executes
+# immediately — and deliberately stays in scope, as does everything after a body
+# closes. Unbalanced dollar quoting exits 3 rather than silently swallowing the
+# rest of the file, so the caller fails closed.
+# (Stopped wt3 on 2026-08-06: app_purge_usage_events' DELETE FROM, in a migration
+# whose executable half is five CREATE TABLEs.)
+migration_executable_sql() {
+  sed -e 's/--.*$//' "$1" | awk '
+    {
+      line = $0
+      if (inbody) {
+        i = index(line, tag)
+        if (i == 0) next
+        line = substr(line, i + length(tag)); inbody = 0
+      }
+      if (!pending && toupper(line) ~ /CREATE[ \t]+(OR[ \t]+REPLACE[ \t]+)?FUNCTION/) pending = 1
+      if (pending && match(line, /\$[A-Za-z_0-9]*\$/)) {
+        tag  = substr(line, RSTART, RLENGTH)
+        head = substr(line, 1, RSTART - 1)
+        rest = substr(line, RSTART + RLENGTH)
+        pending = 0
+        i = index(rest, tag)
+        # a one-line body: keep whatever follows its closing tag
+        if (i > 0) { print head " " substr(rest, i + length(tag)); next }
+        inbody = 1; print head; next
+      }
+      if (pending && line ~ /;[ \t]*$/) pending = 0
+      print line
+    }
+    END { if (inbody) exit 3 }
+  '
 }
 
-# returns 0 = applied (loop may continue), 2 = needs a human
-apply_migrations() {
-  [ "$AUTO_MIGRATE" = "1" ] || { warn "AUTO_MIGRATE=0 — leaving migrations to you"; return 2; }
-  local f
-  for f in "$@"; do
-    [ -f "$f" ] || { warn "migration no longer on disk: $f"; return 2; }
-    migration_is_additive "$f" || { warn "not purely additive: $f"; return 2; }
+migration_is_additive() {
+  local sql
+  sql=$(migration_executable_sql "$1") || return 1   # unbalanced $$ — cannot judge it
+  ! printf '%s' "$sql" | tr '\n' ' ' | grep -qiE "$DESTRUCTIVE_SQL"
+}
+
+# An orphan is a migration the DB has applied but this checkout does not carry.
+# Mid-flight that is normal rather than drift: the build agent applies its
+# migration while on a unit branch, and the next cycle switches back to the base
+# branch, where that file does not exist until the PR merges. Only an orphan we
+# cannot trace to a branch this loop is still waiting on is real drift.
+# $1 = db:status output.  returns 0 = every orphan is this loop's own work
+orphans_are_ours() {
+  local orphans=() name branch found
+  mapfile -t orphans < <(printf '%s\n' "$1" | sed -n 's/^  orphaned //p')
+  [ "${#orphans[@]}" -gt 0 ] || return 0
+  [ -s "$STATE_FILE" ] || {
+    err "orphaned migration(s) with an empty ledger — nothing this loop built explains them"
+    return 1
+  }
+  for name in "${orphans[@]}"; do
+    found=0
+    while IFS= read -r branch; do
+      [ -n "$branch" ] || continue
+      # The unit branch is pushed before it reaches the ledger, so origin/ is the
+      # reliable copy; the local ref is checked too in case a push is still pending.
+      if git cat-file -e "origin/${branch}:db/migrations/${name}" 2>/dev/null \
+        || git cat-file -e "${branch}:db/migrations/${name}" 2>/dev/null; then
+        found=1; break
+      fi
+    done < "$STATE_FILE"
+    [ "$found" = 1 ] || {
+      err "orphaned migration belongs to no branch this loop is waiting on: $name"
+      return 1
+    }
   done
-  for f in "$@"; do
-    step "Applying $(basename "$f") to this worktree's DB…"
-    # ON_ERROR_STOP + the migration's own transaction: psql's exit code is the
-    # real proof it applied. Nothing here is trusted to an agent's say-so.
-    if ! (cd "$DOCKER_DIR" && docker compose --env-file "$DC_ENV_FILE" exec -T postgres \
-            psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1) <"$f" >>"$LOG_DIR/db.log" 2>&1; then
-      err "migration failed to apply: $f — see $LOG_DIR/db.log"
+  return 0
+}
+
+# returns 0 = current/applied, 2 = needs a human
+sync_database() {
+  step "Checking this worktree's migration ledger…"
+  if npm run db:check >>"$LOG_DIR/db.log" 2>&1; then
+    ok "database migration ledger is current"
+    return 0
+  fi
+
+  local status_output
+  status_output=$(npm run db:status 2>&1)
+  local status_rc=$?
+  printf '%s\n' "$status_output" | tee -a "$LOG_DIR/db.log"
+  [ "$status_rc" -eq 0 ] || {
+    err "cannot read database migration status — see $LOG_DIR/db.log"
+    return 2
+  }
+
+  if printf '%s\n' "$status_output" | grep -q '^Baseline launch-v1: missing$'; then
+    warn "launch-v1 baseline is missing — reconcile drift, then run: npm run db:baseline"
+    return 2
+  fi
+
+  # Classify orphans before anything else. db:check fails on them, but this
+  # loop's own unmerged migration is not a reason to stop: it is the state the
+  # loop puts itself in every time it builds one, and the merge phase below is
+  # what clears it.
+  local orphan_count
+  orphan_count=$(printf '%s\n' "$status_output" | grep -c '^  orphaned ')
+  if [ "$orphan_count" -gt 0 ]; then
+    orphans_are_ours "$status_output" || {
+      err "the database records migrations absent from this checkout and from every branch in the ledger — needs a human"
+      return 2
+    }
+    warn "${orphan_count} orphaned migration(s) belong to this loop's unmerged branch(es) — expected until those PRs merge"
+  fi
+
+  local pending_migrations=() migration_name migration_path
+  mapfile -t pending_migrations < <(printf '%s\n' "$status_output" | sed -n 's/^  pending  //p')
+  if [ "${#pending_migrations[@]}" -eq 0 ]; then
+    [ "$orphan_count" -gt 0 ] && {
+      ok "no pending migrations; only this loop's own unmerged orphans remain"
+      return 0
+    }
+    err "migration check failed but status listed no pending migrations — see $LOG_DIR/db.log"
+    return 2
+  fi
+
+  # Nothing pending leaves AUTO_MIGRATE nothing to gate, so this sits below the
+  # early return above rather than in front of it.
+  [ "$AUTO_MIGRATE" = "1" ] || {
+    warn "AUTO_MIGRATE=0 — run npm run db:migrate, then npm run db:check"
+    return 2
+  }
+  for migration_name in "${pending_migrations[@]}"; do
+    [[ "$migration_name" =~ ^[0-9]{8}_[a-z0-9_]+\.sql$ ]] || {
+      err "unexpected pending migration name: $migration_name"
+      return 2
+    }
+    migration_path="db/migrations/$migration_name"
+    [ -f "$migration_path" ] || {
+      err "pending migration is not a top-level file: $migration_path"
+      return 2
+    }
+    migration_is_additive "$migration_path" || {
+      warn "pending migration may alter local dev data: $migration_path"
+      return 2
+    }
+  done
+
+  step "Applying ledger-pending migrations to this worktree's DB…"
+  # db:migrate refuses to write while the DB holds any orphan, so tolerating one above is not
+  # enough on its own — it has to be told. orphans_are_ours already traced every orphan to a
+  # branch this loop is waiting on, and that proof is what the flag stands for; the tool prints
+  # each one it applies over. Without it the loop cannot absorb a migration another pipeline
+  # merged into main until its own PR lands, which it can never reach, because this function
+  # gates the cycle that would merge it. That deadlock stopped wt3 on 2026-08-05.
+  local tolerate_orphans=0
+  [ "$orphan_count" -gt 0 ] && tolerate_orphans=1
+  if ! AGCORE_TOLERATE_ORPHANED_MIGRATIONS="$tolerate_orphans" \
+       npm run db:migrate >>"$LOG_DIR/db.log" 2>&1; then
+    err "ledger migration failed — see $LOG_DIR/db.log"
+    return 2
+  fi
+  if ! npm run db:check >>"$LOG_DIR/db.log" 2>&1; then
+    # A tolerated orphan still fails db:check, so re-read status and prove
+    # nothing new appeared rather than trusting the pre-migration classification.
+    status_output=$(npm run db:status 2>&1)
+    printf '%s\n' "$status_output" | tee -a "$LOG_DIR/db.log"
+    if printf '%s\n' "$status_output" | grep -q '^  pending  ' || ! orphans_are_ours "$status_output"; then
+      err "database ledger is still not current after migration — see $LOG_DIR/db.log"
       return 2
     fi
-    ok "applied $(basename "$f")"
-  done
+  fi
+  ok "ledger-pending migrations applied and verified"
   return 0
 }
 
@@ -385,10 +510,8 @@ one sentinel — a summary without one is a failed run."
       ok "Merged PR #${pr} (verified on GitHub)."
       rm -f "$attempts_file"
       forget_branch "$branch"
-      prep_worktree; local prc=$?
-      [ "$prc" -eq 1 ] && return 1
-      # migration merged: apply it if it is purely additive, else hand it to a human
-      [ "$prc" -eq 2 ] && { apply_migrations "${PULLED_MIGRATIONS[@]}" || return 3; }
+      prep_worktree || return 1
+      sync_database || return 3
     elif final_message "$logfile" | grep -qF "<<<MERGE_BLOCKED"; then
       err "do-pr blocked PR #${pr} — see its PR comment."
       park_blocked_pr "$pr" "$branch"
@@ -548,12 +671,9 @@ while :; do
   cycle=$((cycle+1))
   banner "CYCLE $cycle  —  $(ts)"
 
-  prep_worktree; rc=$?
-  [ "$rc" -eq 1 ] && stop_loop "GIT STATE NEEDS A HUMAN — stopping" 1
-  if [ "$rc" -eq 2 ]; then
-    apply_migrations "${PULLED_MIGRATIONS[@]}" \
-      || stop_loop "MIGRATION PULLED — apply it to this worktree's DB, then restart the loop" 0
-  fi
+  prep_worktree || stop_loop "GIT STATE NEEDS A HUMAN — stopping" 1
+  sync_database \
+    || stop_loop "DATABASE MIGRATION STATE NEEDS A HUMAN — see $LOG_DIR/db.log, then restart the loop" 0
 
   # Phase 1: merge whatever this loop built earlier
   drain_pending; drc=$?

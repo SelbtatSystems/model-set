@@ -46,7 +46,9 @@
       "Edit(**/*.ts)",
       "Edit(**/*.tsx)",
       "Edit(**/*.py)",
-      "Edit(**/*.json)"
+      "Edit(**/*.json)",
+      "Bash(stripe post:*)",
+      "Bash(stripe delete:*)"
     ],
     "deny": [
       "Read(**/.env*)",
@@ -89,7 +91,8 @@
     "command": "bash -c 'python3 \"$HOME/.claude/scripts/context-monitor.py\"'"
   },
   "enabledPlugins": {
-    "warp@claude-code-warp": true
+    "warp@claude-code-warp": true,
+    "stripe@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "claude-code-warp": {

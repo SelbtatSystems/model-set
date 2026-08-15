@@ -60,7 +60,7 @@ Show counts and a one-line summary per issue. Let the maintainer pick.
 
 ## Triage a specific issue
 
-1. **Gather context.** Read the full issue (body, comments, labels, reporter, dates). Parse any prior triage notes so you don't re-ask resolved questions. Explore the codebase using the project's domain glossary, respecting ADRs in the area. Read `.out-of-scope/*.md` and surface any prior rejection that resembles this issue.
+1. **Gather context.** Read the full issue (body, comments, labels, reporter, dates). Parse any prior triage notes so you don't re-ask resolved questions. Explore the codebase using the project's domain glossary, respecting ADRs in the area. Surface any prior rejection that resembles this issue: read `.out-of-scope/*.md` if the project keeps one, otherwise grep closed/archived issues for `wontfix` — that is where most projects keep the reasoning.
 
 2. **Recommend.** Tell the maintainer your category and state recommendation with reasoning, plus a brief codebase summary relevant to the issue. Wait for direction.
 
@@ -73,7 +73,13 @@ Show counts and a one-line summary per issue. Let the maintainer pick.
    - `ready-for-human` — same structure as an agent brief, but note why it can't be delegated (judgment calls, external access, design decisions, manual testing).
    - `needs-info` — post triage notes (template below).
    - `wontfix` (bug) — polite explanation, then close.
-   - `wontfix` (enhancement) — write to `.out-of-scope/`, link to it from a comment, then close ([OUT-OF-SCOPE.md](OUT-OF-SCOPE.md)).
+   - `wontfix` (enhancement) — record the reasoning where this project already keeps closure records, then close.
+     **Follow the project's own convention; do not introduce a second one.** If the tracker has no
+     `.out-of-scope/` directory, the reasoning belongs in the issue file itself, under a `wontfix — <reason>`
+     state and a comment — a rejected enhancement must stay findable by skimming the archive. Only create
+     `.out-of-scope/<concept>.md` where the project already uses that knowledge base ([OUT-OF-SCOPE.md](OUT-OF-SCOPE.md));
+     starting one for a single entry makes the decision harder to find, not easier. If you think the project
+     should adopt it, ask the maintainer as its own decision.
    - `needs-triage` — apply the role. Optional comment if there's partial progress.
 
 ## Quick state override

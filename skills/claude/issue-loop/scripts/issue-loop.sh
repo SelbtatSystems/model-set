@@ -433,8 +433,11 @@ sync_database() {
 # ---- PR ownership ledger ---------------------------------------------------
 # This loop merges ONLY branches recorded here, so a concurrent pipeline's PR
 # (docs loop, your own work, another worktree) is never touched.
+# Every open PR's head branch, whatever it targets. Filtering these to --base main hid stacked
+# PRs — a slice built on an unmerged parent targets that parent, not main — and the final sweep
+# then walked past a PR this worktree had built.
 open_pr_branches() {
-  gh pr list --state open --base "$MAIN_BRANCH" --json headRefName \
+  gh pr list --state open --json headRefName \
     --jq '.[].headRefName' 2>>"$LOG_DIR/gh.log" | sort
 }
 record_branch() {
@@ -465,19 +468,37 @@ forget_branch() {
 # ---- merge phase: drain PRs on branches THIS loop built --------------------
 # returns 0 = nothing left pending, 1 = agent failure, 3 = migration needs a human.
 # A PR blocked at a gate is NOT an outcome here: it gets parked and the loop continues.
+# How many PRs the last drain actually merged. The main loop reads it to tell "the ledger is
+# still full because nothing moved" from "still full because a stack unwinds one slice a cycle".
+DRAIN_MERGED=0
 drain_pending() {
+  DRAIN_MERGED=0
   [ -s "$STATE_FILE" ] || return 0
   # Snapshot the ledger into an array first: the body rewrites $STATE_FILE, and reading a file
   # through an open fd while truncating it skips or garbles later lines.
-  local branches=() branch pr had_unknown=0
+  local branches=() branch pr pr_base had_unknown=0 deferred=0
   mapfile -t branches < "$STATE_FILE"
   for branch in "${branches[@]}"; do
     [ -n "$branch" ] || continue
-    pr=$(gh pr list --state open --base "$MAIN_BRANCH" --head "$branch" \
-           --json number --jq '.[0].number' 2>>"$LOG_DIR/gh.log")
+    # No --base filter: a slice built on an unmerged parent targets that parent. Filtering to
+    # main returned nothing for it, so the branch was dropped from the ledger as if it had
+    # merged — which emptied the ledger and let the loop start another ticket with an open PR
+    # still outstanding. That is how five stacked PRs piled up on 2026-08-06.
+    # One call, both fields: number and base arrive on one tab-separated line.
+    IFS=$'\t' read -r pr pr_base < <(gh pr list --state open --head "$branch" \
+      --json number,baseRefName --jq '.[0] | "\(.number)\t\(.baseRefName)"' 2>>"$LOG_DIR/gh.log")
     if [ -z "$pr" ] || [ "$pr" = "null" ]; then
       log "branch ${branch}: no open PR (merged or closed) — dropping from state"
       forget_branch "$branch"
+      continue
+    fi
+    # A PR targeting anything but main is waiting on its parent: CI does not even run on it
+    # (workflows trigger on PRs to main), so there is nothing to merge yet. Keep it in the
+    # ledger — that is what stops the loop starting a new ticket — and try again next cycle,
+    # once the parent has merged and retarget-dependents has moved this one to main.
+    if [ "$pr_base" != "$MAIN_BRANCH" ]; then
+      warn "#${pr} (${branch}) targets ${pr_base}, not ${MAIN_BRANCH} — its parent has not merged; leaving it queued"
+      deferred=$((deferred+1))
       continue
     fi
     local logfile="$LOG_DIR/merge-$(date +%Y%m%d-%H%M%S).log"
@@ -508,6 +529,7 @@ one sentinel — a summary without one is a failed run."
     local prstate; prstate=$(gh pr view "$pr" --json state --jq .state 2>>"$LOG_DIR/gh.log")
     if [ "$prstate" = "MERGED" ]; then
       ok "Merged PR #${pr} (verified on GitHub)."
+      DRAIN_MERGED=$((DRAIN_MERGED+1))
       rm -f "$attempts_file"
       forget_branch "$branch"
       prep_worktree || return 1
@@ -525,6 +547,7 @@ one sentinel — a summary without one is a failed run."
       continue
     fi
   done
+  [ "$deferred" -gt 0 ] && log "${deferred} queued PR(s) still target an unmerged parent — they stay in the ledger"
   # Report the unknown outcome only after the whole queue has drained, so the caller's
   # retry accounting is unchanged while the other merges still got their chance.
   [ "$had_unknown" -eq 1 ] && return 1
@@ -545,6 +568,48 @@ append a one-line dated reason to the ticket's Comments. Change nothing outside 
   [ "$rc" -ne 0 ] && { err "triage agent exited rc=$rc"; return 1; }
   ok "triage pass finished."
   return 0
+}
+
+# A build agent that dies mid-response (dropped connection, killed process, spent usage) usually
+# dies AFTER committing and BEFORE pushing. The cycle is a failure either way — the ticket is not
+# done — but the commits are real work on a local branch that nothing will ever push: the next
+# cycle checks the base branch back out and builds a different ticket. wt2 lost a 21-minute cycle
+# that way on 2026-08-07, and the commit it stranded was the conflict resolution that would have
+# unblocked that loop's own PR. So push what is committed, then still score the cycle a failure.
+# CI judges the code; the loop's job here is only to stop finished work from being invisible.
+rescue_unpushed_work() {  # rescue_unpushed_work <branch>
+  local branch="$1" ahead pr
+  [ -n "$branch" ] || return 0
+  [ "$branch" = "$BASE_BRANCH" ] && return 0
+  [ "$branch" = "$MAIN_BRANCH" ] && return 0
+  # A dirty tree means the agent died mid-edit. Its last commit may be half a change, and pushing
+  # a snapshot of a half-finished thought is worse than leaving it here for a person to read.
+  if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+    warn "${branch} has uncommitted changes — not pushing a half-finished tree; inspect this worktree"
+    return 0
+  fi
+  # Refresh the remote-tracking ref first: the loop may not have fetched this branch since the
+  # agent created it, and a stale ref both mis-counts the commits and hides a remote that moved.
+  git fetch -q origin "$branch" >>"$LOG_DIR/git.log" 2>&1 || true
+  if git rev-parse --quiet --verify "refs/remotes/origin/${branch}" >/dev/null 2>&1; then
+    ahead=$(git rev-list --count "origin/${branch}..${branch}" 2>/dev/null || echo 0)
+    [ "${ahead:-0}" -gt 0 ] || return 0
+    log "rescuing ${ahead} unpushed commit(s) on ${branch} from the failed build"
+  else
+    log "rescuing ${branch} — the agent never pushed it at all"
+  fi
+  # Plain push, never forced: if the remote moved, something else owns this branch and a person
+  # has to look. Losing the rescue is acceptable; overwriting someone else's commits is not.
+  if ! git push origin "$branch" >>"$LOG_DIR/git.log" 2>&1; then
+    err "could not push ${branch} — see $LOG_DIR/git.log; the commits are safe in this worktree"
+    return 0
+  fi
+  pr=$(gh pr list --state open --head "$branch" --json number --jq '.[0].number' 2>>"$LOG_DIR/gh.log")
+  if [ -n "$pr" ] && [ "$pr" != "null" ]; then
+    ok "pushed ${branch} — PR #${pr} now points at it; CI decides from here"
+  else
+    warn "pushed ${branch} — no PR is open for it, so nothing reviews it until someone opens one"
+  fi
 }
 
 # ---- build phase --------------------------------------------------------------
@@ -597,7 +662,11 @@ nothing and say so."
       warn "agent visited branches with no open PR — nothing to merge: $(tr '\n' ' ' <<< "$visited")"
     fi
   fi
-  [ "$rc" -ne 0 ] && { err "build agent exited rc=$rc"; return 1; }
+  if [ "$rc" -ne 0 ]; then
+    err "build agent exited rc=$rc"
+    rescue_unpushed_work "$cur"
+    return 1
+  fi
   # The agent says the queue is dry. Trust it over our own grep: the two disagree whenever a
   # ticket's Triage line moved during the run, and scoring that as a failure burns MAX_FAILS
   # cycles and then exits on the wrong banner instead of finishing the tracker cleanly.
@@ -707,6 +776,11 @@ while :; do
   # still in it merged neither now nor earlier and was not parked (park_blocked_pr forgets the
   # branch), so building a second unit would stack an unmerged PR behind an unmerged PR.
   if [ -s "$STATE_FILE" ]; then
+    # A cycle that landed a PR made progress, even if the ledger is not empty: unwinding a stack
+    # merges exactly one slice per cycle, because each child only becomes mergeable once its
+    # parent has merged and been retargeted. Counting those cycles as failures would stop the
+    # loop on any stack deeper than MAX_FAILS — the very shape this queue exists to hold.
+    [ "$DRAIN_MERGED" -gt 0 ] && fails=0
     fails=$((fails+1))
     warn "not starting a new issue ${fails}/${MAX_FAILS} — our PR is still unmerged: $(tr '\n' ' ' < "$STATE_FILE")"
     [ "$fails" -ge "$MAX_FAILS" ] && stop_loop "PR STUCK — $(tr '\n' ' ' < "$STATE_FILE") would not merge over ${MAX_FAILS} cycles; see $LOG_DIR" 1

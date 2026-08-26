@@ -36,6 +36,7 @@
       "Bash(docker-compose *)",
       "Bash(yarn:*)",
       "Bash(git:*)",
+      "Bash(gh pr merge:*)",
       "Bash(pip:*)",
       "Read(**/*.json)",
       "Read(**/*.js)",
@@ -75,14 +76,15 @@
     "do-plan": "user-invocable-only",
     "docs-loop": "off",
     "enhance-prompt": "user-invocable-only",
-    "gpt-image": "user-invocable-only",
+    "gpt-image": "on",
     "react-native-skills": "off",
     "research": "user-invocable-only",
-    "seedance-video": "user-invocable-only",
+    "seedance-video": "on",
     "sogni": "user-invocable-only",
-    "sogni-creative-agent:loop-maker": "user-invocable-only",
-    "sogni-creative-agent:sogni-creative-agent": "user-invocable-only",
+    "sogni-creative-agent:loop-maker": "on",
+    "sogni-creative-agent:sogni-creative-agent": "on",
     "tdd": "user-invocable-only",
+    "to-plan": "user-invocable-only",
     "writing-guidelines": "user-invocable-only"
   },
   "disableArtifact": true,
@@ -91,8 +93,8 @@
     "command": "bash -c 'python3 \"$HOME/.claude/scripts/context-monitor.py\"'"
   },
   "enabledPlugins": {
-    "warp@claude-code-warp": true,
-    "stripe@claude-plugins-official": true
+    "stripe@claude-plugins-official": true,
+    "warp@claude-code-warp": true
   },
   "extraKnownMarketplaces": {
     "claude-code-warp": {

@@ -22,7 +22,8 @@ This skill orchestrates the focused review skills (`/code-review`, `/review`, `/
   **Run every layer to the end in one go.** No layer's output is the deliverable, and no sub-skill
   you invoke (`/security-review` especially) ends the run when it returns — you resume at the next
   layer. Do not pause to report progress, do not stop because checks are still running (wait on
-  them: `gh pr checks <#> --watch`), and do not end a turn without a sentinel. Stopping early is
+  them: `gh pr checks <#> --watch --interval 30` — never the default interval, see *CI + merge*),
+  and do not end a turn without a sentinel. Stopping early is
   indistinguishable from failing, so the whole run is discarded and repeated at full cost.
 
   **Delegate the report-producing layers to subagents.** `/review`, `/code-review`,
@@ -46,6 +47,15 @@ This skill orchestrates the focused review skills (`/code-review`, `/review`, `/
     review would stop the loop on a healthy PR.
   - **It returns structured findings**, each with file, line, severity and the concrete failure —
     not a narrative you have to re-read to act on.
+  - **It is told the absolute path of the repo/worktree, and to `cd` there as its first action.**
+    A subagent inherits the *session's* working directory, not yours — so `cd`-ing yourself does
+    nothing for the agents you spawn. When the session was started from a directory that is not a
+    git repo (a folder holding several worktrees, say), `/security-review` and `/code-review`
+    refuse to launch there and `EnterWorktree` refuses too. The subagent then falls back to
+    reviewing commits by hand, which looks like a hang rather than an error. Observed 2026-08-18 on
+    PR #1146: one security subagent burned ~3.5 h and ~101k tokens that way, on a review a second
+    agent had already completed. Put the path in the prompt — `Work in /abs/path/to/worktree; cd
+    there first` — every time, for every delegated layer.
 
   When a subagent returns, you are mid-pipeline by definition. Say which layer just closed and which
   is next before doing anything else; that single line is what makes stopping here feel as wrong as
@@ -150,16 +160,32 @@ High risk → run the domain hand-checks in [`references/risk-playbooks.md`](ref
 
 ### 7. CI + merge
 
+**Mark the PR ready for review first — before you wait on anything.**
+
+```bash
+gh pr ready <#>
+```
+
+`/do-issue` opens PRs as drafts, and `ci.yml` skips Tests and E2E while a PR is a draft. So on a draft those two jobs have **never run**, and waiting for them to go green would wait forever. `gh pr ready` is what triggers them (the workflow listens for `ready_for_review`). Do this once, after your patches are pushed and before the CI wait — marking it ready earlier would pay for a full run on code your review is about to change.
+
+A PR that is already ready (a human opened it, or a previous attempt marked it) — `gh pr ready` is a no-op, so just run it.
+
 Wait for CI to **complete** — never merge on pending. Require all green, and the branch up to date with base — if behind, **merge base into the branch** (never rebase a pushed PR branch: the force-push it needs is hook-blocked; matters most for migrations and shared files).
 
 **One watch call cannot outlast this repo's CI.** A single Bash call is capped at ~590s; CI here runs 12–14 minutes. So `gh pr checks <#> --watch` (or `gh run watch`) *will* time out on a fresh push, and a timed-out watch is **not a result** — it is a call you have to make again:
 
 ```bash
 # repeat this exact call until it returns a terminal state; each one is a fresh Bash call
-gh run watch <run-id> --exit-status 2>&1 | tail -5; echo "RC=$?"
+gh run watch <run-id> --interval 30 --exit-status 2>&1 | tail -5; echo "RC=$?"
 # or poll cheaply between watches
 gh run view <run-id> --json status,conclusion --jq '{status,conclusion}'
 ```
+
+**Always pass `--interval 30`.** `gh run watch` defaults to a 3s refresh, and each refresh is a REST
+call against the 5000/hour core quota shared by every loop on this machine. One default-interval
+watch spends ~390 calls; at `--interval 30` it spends ~40. Four loops watching CI on the default
+exhausted the whole hourly quota on 2026-08-16 and stalled every pipeline. Same for
+`gh pr checks <#> --watch --interval 30` (its default is 10s).
 
 Budget about four such calls (~40 min) before treating CI as genuinely stuck. Do **not** replace the repeated call with a Monitor, a background task, or ending your turn — see *Never end the run while work is in flight* above. CI never goes green within that budget → autonomous: `<<<MERGE_BLOCKED #N ci-timeout>>>`.
 

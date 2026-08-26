@@ -114,8 +114,12 @@ Push the branch explicitly (it has no upstream after step 3's `--no-track`), the
 
 ```bash
 git push -u origin HEAD
-gh pr create --base main      # use --base <slice-branch> only for a stacked PR
+gh pr create --draft --base main   # use --base <slice-branch> only for a stacked PR
 ```
+
+**Open it as a draft.** `ci.yml` gates its two expensive jobs — Tests (~14 min) and E2E (~47 min), 61 of the 65 billed minutes per run — on the PR being marked ready for review. Static and Build still run on a draft, so you keep fast typecheck/lint/build feedback. This matters because the merge agent pushes review patches: measured on recent branches, one PR triggered 3 full runs typically and 7 at worst. As a draft that is **one** full run, taken once at the end.
+
+`/do-pr` marks the PR ready before it merges — that is what fires the gated jobs. Never mark it ready yourself here; a PR that is ready before review has been done pays for CI on code the review is about to change.
 
 The body restates the slice, lists each acceptance criterion with its verified result, and references the ticket.
 
@@ -123,6 +127,8 @@ The body restates the slice, lists each acceptance criterion with its verified r
 
 ### 7. Close the loop in the tracker
 
-In the ticket file: flip `**Triage:**` to `done` and append a dated `## Comments` line linking the PR. **Never modify the parent PRD.** Then name the tickets this unblocks and stop — the next run takes the next ticket. (Write the tracker file only; do not commit it or run its scripts if the tracker lives in an externally-managed store — follow the repo's tracker config.)
+In the ticket file: **tick each `## Acceptance criteria` box you confirmed in step 5** (`- [ ]` → `- [x]`), flip `**Triage:**` to `done`, and append a dated `## Comments` line linking the PR. **Never modify the parent PRD.** Then name the tickets this unblocks and stop — the next run takes the next ticket. (Write the tracker file only; do not commit it or run its scripts if the tracker lives in an externally-managed store — follow the repo's tracker config.)
 
-✓ **Done when:** the ticket's `**Triage:**` reads `done` and a `## Comments` entry links the PR.
+**The ticket file is the record, not the PR body.** Step 5 says a criterion you could not execute stays unchecked — that only means something if this step writes the checked ones back. A ticket closed `done` with every box still `[ ]` reads, months later, as work nobody verified; the proof lives in a PR body no one will reopen. Tick only what you actually executed. Any box still `[ ]` at close gets a `## Comments` line saying which one and why.
+
+✓ **Done when:** the ticket's `**Triage:**` reads `done`, every verified acceptance criterion is `- [x]`, any unverified one is named in `## Comments`, and a `## Comments` entry links the PR.

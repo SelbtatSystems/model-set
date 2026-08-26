@@ -29,6 +29,8 @@ BASE_BRANCH="${BASE_BRANCH:-}"            # this worktree's own branch; empty = 
 LOG_DIR="${LOG_DIR:-./issue-loop-logs}"
 STOP_FILE="${STOP_FILE:-.issue-loop-stop}"  # touch it to stop THIS loop only
 MAX_FAILS="${MAX_FAILS:-3}"               # consecutive failed cycles → stop
+GH_RETRIES="${GH_RETRIES:-5}"             # gh attempts before declaring GitHub unreachable
+GH_RETRY_BASE="${GH_RETRY_BASE:-15}"      # linear backoff seed: 15s, 30s, 45s, 60s → ~2.5min
 AUTO_MIGRATE="${AUTO_MIGRATE:-1}"         # 1 = apply ledger-pending migrations; 0 = always stop for a human
 MAIN_MODEL="${MAIN_MODEL:-fable}"         # build + triage agent model
 PR_MODEL="${PR_MODEL:-opus}"              # merge agent model
@@ -300,6 +302,19 @@ migration_is_additive() {
   ! printf '%s' "$sql" | tr '\n' ' ' | grep -qiE "$DESTRUCTIVE_SQL"
 }
 
+# Every branch whose migration is legitimately mid-flight: the merge ledger, plus the
+# branches of PRs parked at a review gate. A parked PR is dropped from the ledger on
+# purpose (park_blocked_pr — surfaced, not retried), but its branch still exists and its
+# migration is still applied to this worktree's DB, so the ledger alone is not the whole
+# set. Reading only the ledger reported a parked PR's own migration as drift and stopped
+# the loop for a human on the next cycle — wt2, 2026-08-17: #1127
+# `feat/29-draw-the-dam-outline` parked at 12:58, loop refused to start at 13:28. Any
+# parked PR carrying a migration reproduced it.
+inflight_branches() {
+  cat "$STATE_FILE" 2>/dev/null
+  sed -n 's/^- #[0-9]\+ `\([^`]\+\)`.*/\1/p' "$PARKED_FILE" 2>/dev/null
+}
+
 # An orphan is a migration the DB has applied but this checkout does not carry.
 # Mid-flight that is normal rather than drift: the build agent applies its
 # migration while on a unit branch, and the next cycle switches back to the base
@@ -307,26 +322,26 @@ migration_is_additive() {
 # cannot trace to a branch this loop is still waiting on is real drift.
 # $1 = db:status output.  returns 0 = every orphan is this loop's own work
 orphans_are_ours() {
-  local orphans=() name branch found
+  local orphans=() branches=() name branch found
   mapfile -t orphans < <(printf '%s\n' "$1" | sed -n 's/^  orphaned //p')
   [ "${#orphans[@]}" -gt 0 ] || return 0
-  [ -s "$STATE_FILE" ] || {
+  mapfile -t branches < <(inflight_branches | grep -v '^[[:space:]]*$' | sort -u)
+  [ "${#branches[@]}" -gt 0 ] || {
     err "orphaned migration(s) with an empty ledger — nothing this loop built explains them"
     return 1
   }
   for name in "${orphans[@]}"; do
     found=0
-    while IFS= read -r branch; do
-      [ -n "$branch" ] || continue
+    for branch in "${branches[@]}"; do
       # The unit branch is pushed before it reaches the ledger, so origin/ is the
       # reliable copy; the local ref is checked too in case a push is still pending.
       if git cat-file -e "origin/${branch}:db/migrations/${name}" 2>/dev/null \
         || git cat-file -e "${branch}:db/migrations/${name}" 2>/dev/null; then
         found=1; break
       fi
-    done < "$STATE_FILE"
+    done
     [ "$found" = 1 ] || {
-      err "orphaned migration belongs to no branch this loop is waiting on: $name"
+      err "orphaned migration belongs to no branch this loop is waiting on or has parked: $name"
       return 1
     }
   done
@@ -436,9 +451,30 @@ sync_database() {
 # Every open PR's head branch, whatever it targets. Filtering these to --base main hid stacked
 # PRs — a slice built on an unmerged parent targets that parent, not main — and the final sweep
 # then walked past a PR this worktree had built.
+# Every gh query the ledger depends on goes through here. A failed API call and a
+# query that legitimately matched nothing both print nothing, and the ledger code
+# used to read that empty string as "the PR is gone" — so a GitHub outage silently
+# forgot branches and stranded their PRs forever. Observed 2026-08-17: two HTTP 503s
+# from api.github.com/graphql emptied wt1's ledger and orphaned #1136/#1137/#1138.
+# Returns 0 + output on success, non-zero on failure. Callers MUST tell the two apart.
+gh_retry() {
+  local attempt=1 out rc
+  while :; do
+    out=$(gh "$@" 2>>"$LOG_DIR/gh.log"); rc=$?
+    if [ "$rc" -eq 0 ]; then printf '%s' "$out"; return 0; fi
+    if [ "$attempt" -ge "$GH_RETRIES" ]; then
+      err "gh $1 $2 failed ${attempt}x (rc=$rc) — GitHub unreachable; see $LOG_DIR/gh.log"
+      return "$rc"
+    fi
+    warn "gh $1 $2 failed (rc=$rc), attempt ${attempt}/${GH_RETRIES} — retrying in $((attempt*GH_RETRY_BASE))s"
+    sleep $((attempt * GH_RETRY_BASE))
+    attempt=$((attempt+1))
+  done
+}
+
+# Non-zero here means "could not ask GitHub", never "no PRs are open".
 open_pr_branches() {
-  gh pr list --state open --json headRefName \
-    --jq '.[].headRefName' 2>>"$LOG_DIR/gh.log" | sort
+  gh_retry pr list --state open --json headRefName --jq '.[].headRefName' | sort
 }
 record_branch() {
   local b="$1"
@@ -485,8 +521,16 @@ drain_pending() {
     # merged — which emptied the ledger and let the loop start another ticket with an open PR
     # still outstanding. That is how five stacked PRs piled up on 2026-08-06.
     # One call, both fields: number and base arrive on one tab-separated line.
-    IFS=$'\t' read -r pr pr_base < <(gh pr list --state open --head "$branch" \
-      --json number,baseRefName --jq '.[0] | "\(.number)\t\(.baseRefName)"' 2>>"$LOG_DIR/gh.log")
+    local prline
+    if ! prline=$(gh_retry pr list --state open --head "$branch" \
+      --json number,baseRefName --jq '.[0] | "\(.number)\t\(.baseRefName)"'); then
+      # GitHub is down, not the PR. Dropping the branch here is unrecoverable — the PR
+      # stays open and nothing ever merges it — so keep it and re-check next cycle.
+      warn "could not reach GitHub for ${branch} — keeping it in the ledger, retrying next cycle"
+      deferred=$((deferred+1))
+      continue
+    fi
+    IFS=$'\t' read -r pr pr_base <<< "$prline"
     if [ -z "$pr" ] || [ "$pr" = "null" ]; then
       log "branch ${branch}: no open PR (merged or closed) — dropping from state"
       forget_branch "$branch"
@@ -526,7 +570,9 @@ one sentinel — a summary without one is a failed run."
     local rc=$?
     # Ground truth first: GitHub cannot lie about whether the PR merged; sentinels are only
     # consulted for the not-merged outcomes (models decorate or omit them).
-    local prstate; prstate=$(gh pr view "$pr" --json state --jq .state 2>>"$LOG_DIR/gh.log")
+    # gh_retry, not a bare call: an outage here reads as "not merged" and re-runs the whole
+    # merge agent next cycle at full cost. Still fails safe (the branch stays in the ledger).
+    local prstate; prstate=$(gh_retry pr view "$pr" --json state --jq .state)
     if [ "$prstate" = "MERGED" ]; then
       ok "Merged PR #${pr} (verified on GitHub)."
       DRAIN_MERGED=$((DRAIN_MERGED+1))
@@ -604,8 +650,9 @@ rescue_unpushed_work() {  # rescue_unpushed_work <branch>
     err "could not push ${branch} — see $LOG_DIR/git.log; the commits are safe in this worktree"
     return 0
   fi
-  pr=$(gh pr list --state open --head "$branch" --json number --jq '.[0].number' 2>>"$LOG_DIR/gh.log")
-  if [ -n "$pr" ] && [ "$pr" != "null" ]; then
+  if ! pr=$(gh_retry pr list --state open --head "$branch" --json number --jq '.[0].number'); then
+    warn "pushed ${branch} — could not reach GitHub to see whether a PR points at it"
+  elif [ -n "$pr" ] && [ "$pr" != "null" ]; then
     ok "pushed ${branch} — PR #${pr} now points at it; CI decides from here"
   else
     warn "pushed ${branch} — no PR is open for it, so nothing reviews it until someone opens one"
@@ -648,12 +695,18 @@ nothing and say so."
     # open PR. A concurrent loop's PR can never appear here, so unlike the old "exactly one new PR
     # in the time window" rule this neither swallows another loop's work nor strands our own when
     # two loops happen to open a PR in the same window (that is how #802 and #806 were orphaned).
-    local visited open_now b adopted=0
+    local visited open_now b adopted=0 gh_blind=0
     visited=$(visited_branches "$reflog_before")
-    open_now=$(open_pr_branches)
+    open_now=$(open_pr_branches) || gh_blind=1
     while IFS= read -r b; do
       [ -n "$b" ] || continue
-      if printf '%s\n' "$open_now" | grep -qFx "$b"; then
+      # Blind means GitHub would not answer. Recording a branch that turns out to have no
+      # PR is harmless — drain_pending drops it next cycle. NOT recording one that does is
+      # permanent: the PR is orphaned. So when in doubt, remember.
+      if [ "$gh_blind" = 1 ]; then
+        record_branch "$b"; adopted=$((adopted+1))
+        warn "GitHub unreachable; recorded ${b} from the reflog unverified — drain will confirm it"
+      elif printf '%s\n' "$open_now" | grep -qFx "$b"; then
         record_branch "$b"; adopted=$((adopted+1))
         warn "agent left HEAD on ${BASE_BRANCH}; adopted ${b} from this worktree's reflog"
       fi
@@ -692,7 +745,12 @@ nothing and say so."
 # reflog first, so an ownership miss earlier in the run cannot strand a PR at the finish line.
 finish_tracker() {
   local b open_now swept=0 drc n_human n_parked
-  open_now=$(open_pr_branches)
+  # This path is terminal. Finishing while GitHub is unreachable would retire the folder
+  # with PRs still open and no ledger entry to merge them from, so refuse to finish blind.
+  open_now=$(open_pr_branches) || {
+    warn "GitHub unreachable at the finish line — not retiring the folder; retrying next cycle"
+    return 0
+  }
   while IFS= read -r b; do
     [ -n "$b" ] || continue
     if printf '%s\n' "$open_now" | grep -qFx "$b" && ! grep -qFx "$b" "$STATE_FILE" 2>/dev/null; then

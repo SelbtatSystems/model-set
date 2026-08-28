@@ -34,4 +34,5 @@ declare -A HOST_SKILL_DIRS=(
   [claude]="$HOME/.claude/skills"
   [codex]="$HOME/.codex/skills"
   [opencode]="$HOME/.config/opencode/skills"
+  [agents]="$HOME/.agents/skills"
 )

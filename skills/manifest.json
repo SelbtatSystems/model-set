@@ -8,6 +8,7 @@
     "hosts:  claude   -> ~/.claude/skills/<name>",
     "        codex    -> ~/.codex/skills/<name>",
     "        opencode -> ~/.config/opencode/skills/<name>",
+    "        agents   -> ~/.agents/skills/<name>",
     "",
     "Each entry is an individual symlink back into this repo, so editing the",
     "installed file edits the tracked file. See PLAN.md for the reasoning."
@@ -36,6 +37,12 @@
       "dir": "skills/external",
       "hosts": ["claude", "codex", "opencode"],
       "dialect": "none",
+      "lint": false
+    },
+    "shared": {
+      "dir": "skills/shared",
+      "hosts": ["claude", "codex", "opencode", "agents"],
+      "dialect": "portable",
       "lint": false
     }
   },

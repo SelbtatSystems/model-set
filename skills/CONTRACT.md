@@ -10,13 +10,14 @@ Nobody had written down what a Codex skill is allowed to reach for.
 
 ---
 
-## The three sets
+## The four sets
 
 | Set | Consumers | Dialect | May assume |
 |---|---|---|---|
 | `skills/claude/` | Claude Code | Claude-native | Everything Claude Code offers |
 | `skills/codex/` | Codex **and** OpenCode | GPT | Codex ∩ OpenCode, unless marked Codex-only |
 | `skills/external/` | all three | not ours | n/a — never edit; upstream owns the prose |
+| `skills/shared/` | Claude Code, Codex, OpenCode, and `~/.agents` | portable | Shell, files, and ordinary Markdown instructions only |
 
 ---
 
@@ -129,7 +130,7 @@ difference is the entire reason the two sets exist.
 
 ## Adding a skill
 
-1. Decide the set. Ours → `claude/` or `codex/`. Someone else's → `external/`.
+1. Decide the set. Claude-specific → `claude/`. Codex/OpenCode-specific → `codex/`. Host-neutral local skills → `shared/`. Upstream-owned skills → `external/`.
 2. Write it in that set's dialect.
 3. If it's in `codex/` and needs Codex-native features, add an `overrides` entry.
 4. If it's degraded, add the `## Degraded vs Claude` block.

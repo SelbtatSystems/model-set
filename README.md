@@ -70,13 +70,14 @@ generated output, nothing that can go stale on re-run.
 
 ## Skills
 
-Three sets, three different rules — see [skills/CONTRACT.md](skills/CONTRACT.md).
+Four sets, four different rules — see [skills/CONTRACT.md](skills/CONTRACT.md).
 
 | Set | Consumers | Dialect |
 |---|---|---|
 | `skills/claude/` | Claude Code | Claude-native |
 | `skills/codex/` | Codex **and** OpenCode | GPT |
 | `skills/external/` | all three | upstream's — never edit |
+| `skills/shared/` | Claude Code, Codex, OpenCode, and `~/.agents` | portable |
 
 The Claude and Codex sets are independent and hand-authored. The same skill is
 written differently in each, because Claude handles latitude and prose framing
@@ -87,6 +88,11 @@ the directories, so it can't drift from what's on disk. Each host's skills
 directory is a farm of per-skill symlinks back into the repo — so editing
 `~/.claude/skills/tdd/SKILL.md` *is* editing the tracked file. Edit in place,
 `git diff` shows it.
+
+Create new portable skills in this repository, never directly under a global
+skill directory. `skills/shared/` is for locally owned, host-neutral skills;
+the setup script also links it into `~/.agents/skills`. A real global directory
+is not adopted automatically, because replacing it could overwrite local work.
 
 A skill can be marked Codex-only in the manifest; it then gets the full Codex
 stack (`codex review`, `~/.codex/agents/`, `~/.codex/prompts/`) and is never

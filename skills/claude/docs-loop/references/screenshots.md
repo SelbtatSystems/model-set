@@ -2,7 +2,7 @@
 
 ## Capture
 
-- Always against the Docker containers (login URL and creds in `memory/AgCore/TEST-LOGIN.md` at the repo
+- Always against the Docker containers (login URL and dev creds in `memory/AgCore/TEST-LOGIN.md` — dev fixtures only; never a production login, see the repo `db/seeds/README.md` contract — at the repo
   root — resolve it from there, not the current directory), never a dev server.
 - `export AGENT_BROWSER_SESSION=docs-loop` before the first command and reuse that one logged-in
   session for the whole run — repeated logins trip the auth throttle (429). Never `close --all`.

@@ -75,6 +75,8 @@ If the URL still contains `/auth/setup-password` or bounces to `/auth/login`, ac
 
 ## 4. Record the seeker in memory/AgCore/TEST-LOGIN.md
 
+Dev stacks only: this file holds `db/seeds/` fixtures and test data. **Never write a production login into it** (or anywhere else); production QA credentials come from `AGCORE_QA_EMAIL` / `AGCORE_QA_PASSWORD` in the launching shell, and are never echoed or stored.
+
 Append **one entry per run** to the `eform-seekers` array in `<repo>/memory/AgCore/TEST-LOGIN.md`. Use the `edit` tool (string replacement) so the existing `//` comments are preserved — do not rewrite the whole file.
 
 ### Entry shape

@@ -20,6 +20,10 @@
 - **agent-browser skill** — browser debugging, screenshots, testing, reading console errors. `snapshot -i` before interacting; re-snapshot after navigation (refs invalidate on page changes).
 - **Subagent models (Claude Code)** — research, design-decision, and planning subagents inherit the session model (no override). All other subagent tasks (implementation, mechanical sweeps, routine work) run **Opus 4.8** (`model: "opus"`) at **high reasoning effort** wherever effort is settable (e.g. Workflow `agent()`); the Agent tool has no effort knob — model override only. **Exception** — all agent-browser browser testing and frontend testing (e.g. the `frontend-review` agent, agent-browser QA sweeps) run **Sonnet 5** (`model: "sonnet"`) at **high reasoning effort**.
 
+## Credentials
+
+Never write a production login into any file — not a repo, a vault note, a memory note, a skill, or a log. Production test credentials arrive only as environment variables set by the human in the shell that launches the agent (AgCore: `AGCORE_QA_EMAIL` / `AGCORE_QA_PASSWORD`); use them as `$VAR` in the command that fills the form, never echo or store the value. If you find a production credential written down, remove it and tell the user.
+
 ## Dead Code Hygiene
 
 After refactors, remove code you are absolutely sure is unreachable — dead code misleads the next reader. If unsure, flag it instead of deleting. Don't leave corpses.

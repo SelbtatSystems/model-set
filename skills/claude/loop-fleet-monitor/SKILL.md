@@ -87,7 +87,7 @@ The **vault** is a Nextcloud folder symlinked into every worktree as `./memory`:
 | Features awaiting documentation | `memory/AgCore/planning/user-docu/` |
 | Finished + documented work | `memory/AgCore/planning/archive/issues/` |
 | Change log | `memory/log.md` |
-| Test credentials | `memory/AgCore/TEST-LOGIN.md` (the old in-repo `test-login.json` is gone) |
+| Test credentials | `memory/AgCore/TEST-LOGIN.md` — dev fixtures only, never a production login (`db/seeds/README.md` contract) |
 | Ports, Docker, worktree stacks | `memory/AgCore/RUNTIME.md` |
 
 **The vault is not a git repository** — no history, no revert, and it syncs to Sven's server. Read

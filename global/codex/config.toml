@@ -1,17 +1,14 @@
 #:schema https://developers.openai.com/codex/config-schema.json
 
 # MODEL SETTINGS
-model = "gpt-5.6-terra"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 personality = "pragmatic"
 
 # APPROVALS / SANDBOX
-approval_policy = "on-request"
+approval_policy = "never"
 approvals_reviewer = "user"
-sandbox_mode = "workspace-write"
-
-[sandbox_workspace_write]
-network_access = true
+default_permissions = ":danger-full-access"
 
 # FEATURES
 [features]

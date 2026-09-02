@@ -1,13 +1,14 @@
 ---
 name: docs-loop
-description: Autonomous ralph-loop documentation sweep for AgCore. Each run works exactly ONE unit — the next docs-coverage queue row, else the next ready-for-agent issue in docs-coverage/issues, else a critique pass (read the published docs as a user and file gaps, or reconcile a planning/user-docu feature folder and archive it once documented) — verifying every claim in the running Docker app, then opening a PR and ending with one sentinel. Use when the ralph loop invokes it, or the user says "run the docs loop", "document the whole app", "docs sweep", or "critique the docs".
+description: Change-aware documentation maintenance loop for AgCore. Each autonomous run scans origin/main for user-visible changes, then completes exactly one coverage, shipped-feature, stale-page, screenshot, or prose-review unit against the running Docker app. Use when the ralph loop invokes it, or the user asks to run the docs loop, document the app, reconcile user-docu, refresh screenshots, or critique the docs.
 ---
 
 # Docs Loop
 
-Turn the whole AgCore employer app into published user documentation, one unit per run. Persistent
-state lives in `memory/AgCore/planning/docs-coverage/QUEUE.md` (the vault — read and write files
-only, never git or scripts there). End every run with exactly one sentinel on its own line:
+Turn the whole AgCore employer app into current user documentation, one unit per run. Persistent
+coverage state lives in `memory/AgCore/planning/docs-coverage/QUEUE.md`; change, prose, screenshot,
+and feature-reconciliation state lives in `MAINTENANCE.md` beside it. The vault is read/write files
+only, never git or scripts. End every run with exactly one sentinel on its own line:
 
 - `<<<DOCS_PUBLISHED <unit-id>>>>` — unit shipped, PR open against main.
 - `<<<DOCS_BLOCKED <unit-id> <reason>>>>` — row marked blocked in the queue, working tree left clean.
@@ -45,6 +46,8 @@ deleting an already-published docs slug or heading id, and force-pushing.
   TSX authoring, anchor rules).
 - The owning context's `CONTEXT.md` for the surface you document — every `_Avoid_:` line is a banned
   word list.
+- `references/maintenance.md` in this skill — startup scan, lane selection, recursive feature
+  evidence, page review, screenshot freshness, and the archive gate.
 - `references/voice.md` (how to write) and `references/screenshots.md` (capture + ffmpeg annotation)
   in this skill.
 
@@ -74,6 +77,18 @@ edge case its feature actually has, a section nothing links to, a broken anchor.
 product bug: an app defect found while reading the docs goes to the owning feature tracker's
 attention via a note in the issue, never fixed here.
 
+## The maintenance ledger
+
+`memory/AgCore/planning/docs-coverage/MAINTENANCE.md` is the exhaustive ledger. It contains every
+live public and gated page, every screenshot-bearing page, and every folder physically present in
+`planning/user-docu/`. The directory is authoritative; the user-docu README is a maintained summary,
+not the intake index. A page remains `unreviewed` or `needs-review` until its prose, source mapping,
+live behaviour, and screenshots have been checked at the recorded `origin/main` commit.
+
+Run the change-impact scan in `references/maintenance.md` **before selecting work on every run**.
+The scan is intake, not the run's unit: it updates the ledger, then the run completes one selected
+unit. Never advance the scan commit while a changed user-facing path is unaccounted for.
+
 ### 0. Bootstrap — only if QUEUE.md does not exist
 
 Building the queue is that run's entire unit. Derive the surface list from code, so coverage is
@@ -102,35 +117,40 @@ the vault is not in git).
 
 ### 1. Select the unit
 
-Work down this precedence and stop at the first hit:
+Run the startup scan, then work down this precedence and stop at the first hit:
 
-1. an `in-progress` `QUEUE.md` row — a crashed earlier run; finish or redo it
-2. the first `todo` `QUEUE.md` row — a surface with no documentation yet
-3. the lowest-numbered `ready-for-agent` issue in `docs-coverage/issues/` whose `**Blocked by:**`
-   entries are all `done` — a quality gap on something already published
-4. nothing in 1–3 → **critique pass** (below). This is the normal steady state once coverage is
-   complete, not an error.
+1. an `in-progress` queue, maintenance, or docs-coverage issue unit — finish or redo it
+2. the first `todo` `QUEUE.md` row — a wholly undocumented surface still outranks maintenance
+3. alternate the two maintenance lanes, using `MAINTENANCE.md`'s `last_completed_lane`:
+   - **feature lane:** the oldest unresolved folder physically present in `planning/user-docu/`
+   - **page lane:** the oldest `needs-review` or `unreviewed` live page; a ready docs-coverage issue
+     on that page goes first
+4. when the chosen lane is empty, take the other lane
+5. when both are empty, run one full reader journey as the saturation check
 
-Coverage outranks quality deliberately: an undocumented surface fails a reader worse than an
-imperfect page. `blocked` rows are a note for a human, not a retry queue — never take one.
+`blocked` rows are a note for a human, not a retry queue. A folder whose implementation is absent
+from `origin/main` is pending, not documented from an unmerged branch; leave it in user-docu and take
+the next feature.
 
-For 1–3, branch before building. Every run starts from the freshly fetched remote main, never from a
-local branch or whatever HEAD happens to be: `git fetch origin main && git switch --no-track -c
+For a unit that will modify code-backed documentation, branch before building. Every such run starts
+from the freshly fetched remote main, never from a local branch or whatever HEAD happens to be:
+`git fetch origin main && git switch --no-track -c
 documentation/<unit-id> origin/main` (a backlog issue uses `documentation/fix-<issue-slug>`). Prove
 freshness: `git merge-base --is-ancestor $(git ls-remote origin -h refs/heads/main | cut -f1) HEAD`.
 Keep the `documentation/` prefix whatever the work is — the runner counts open PRs by that prefix
 and enforces "at most one open at a time".
 
-✓ **Done when:** you know which of the four you are doing, and — for 1–3 — exactly one row or issue
-is marked in progress and you are on a fresh `documentation/…` branch off origin/main.
+✓ **Done when:** exactly one unit is marked in progress and, for a code-backed unit, you are on a
+fresh `documentation/…` branch off origin/main.
 
 ### 2. Establish what is true today
 
-Docs describe what runs, not what was planned. First check
-`memory/AgCore/planning/user-docu/` — its README manifest maps shipped features to target pages;
-if a folder there covers this unit's surface, read its `PRD.md` and everything under `issues/`
-before writing: the user stories say what the feature is *for*, and the build issues say how it
-actually works, including the edge cases worth documenting.
+Docs describe what is merged and running, not what was planned. For a related user-docu folder,
+follow the recursive evidence read in `references/maintenance.md`. This includes conventional
+`issues/**/*.md`, numbered tickets stored at the folder root, implementation reports, plans, maps,
+guides, `NEEDS-HUMAN.md`, provenance, and ticket comments. Extract every linked implementation PR
+and confirm its relevant behaviour is in `origin/main`; a `done` label or completed plan is not
+proof that it merged.
 
 **Edge cases and limits are content, not trivia.** A reader trusts a page that tells them where the
 feature stops. From the feature's issues and its code, carry across: what happens at the boundaries
@@ -152,7 +172,10 @@ raw screenshot exists.
 
 ### 3. Annotate the screenshots
 
-Crop and annotate with ffmpeg per `references/screenshots.md`, then place finals in
+Compare every screenshot already used by the selected page with the same live Docker surface before
+deciding it can stay. The comparison is visual and functional: labels, controls, layout, state,
+density, and visible styling must still match. Record the route, account state, purpose, paths, and
+verified commit in `MAINTENANCE.md`. Crop and annotate replacements per `references/screenshots.md`, then place finals in
 `apps/<app>/public/docs/<page-slug>/NN-<what>.png`. One idea per image. Never let a TFN, bank
 detail, or real-looking personal value into a shot.
 
@@ -162,7 +185,7 @@ created account with nothing behind it, not on the loaded fixture org. Unrelated
 background of a "you have nothing yet" screen is the single most confusing thing a getting-started
 shot can carry. For a page about working with existing records the opposite holds: populate enough
 that the screen shows what it is for. This is policy for pages you create or change from now on;
-already-published shots are re-taken only when an issue names them.
+already-published shots are re-taken when an issue or maintenance row requires their review.
 
 ✓ **Done when:** every final image is cropped, annotated where an action needs pointing out, and
 sitting in the right `public/docs/` folder.
@@ -170,7 +193,14 @@ sitting in the right `public/docs/` folder.
 ### 4. Write the pages
 
 Voice and structure: `references/voice.md`. One Diátaxis purpose per page — a page that mixes two is
-two pages.
+two pages. After the factual draft is complete, invoke `$humanizer:humanizer` in **file mode** on
+every new or materially edited page. Then compare the result with the evidence again: preserve every
+claim, exact interface label, legal wording, number, link target, heading id, and metadata value.
+
+Preserve the file's established formatting. Inspect the workspace formatter configuration before
+running it, and do not accept a formatter pass that rewrites unrelated lines in an existing docs
+page. Restore that churn with targeted edits, keep only the documentation change, and review the
+final diff before the gate.
 
 **agcore-web (Documentation hub):**
 - Page component in `apps/agcore-web/src/app/docs/<Name>Page.tsx`, shaped like
@@ -217,82 +247,40 @@ and re-run, never skip or weaken a test.
 
 ### 6. Record and hand off
 
-1. Queue row → `published`, with the shipped slugs in Notes. One line in `memory/log.md`.
-2. If the unit drew on a `planning/user-docu/` feature folder, append a `## Documentation` section
-   to that folder's `PRD.md`: the date, the slugs published, and anything from the PRD deliberately
-   not documented (with the reason). When every page the README manifest expects for that feature
-   is now live — public and gated — retire the folder: move it to
-   `memory/AgCore/planning/archive/issues/<slug>/`, delete its row from the `user-docu/README.md`
-   manifest, and add a *Documented* row to the archive README's manifest. Partially covered →
-   the folder stays and the PRD section records what remains.
+1. Queue row → `published`, with the shipped slugs in Notes. Update the page and feature rows in
+   `MAINTENANCE.md`. Add one line to `memory/log.md`.
+2. For a `planning/user-docu/` feature, apply the archive gate in `references/maintenance.md`.
+   Append or replace its `## Documentation` section with the date, verified `origin/main` commit,
+   live slugs, current screenshots, and every deliberate omission with its reason. Only then move
+   the whole folder to `memory/AgCore/planning/archive/issues/<slug>/`, remove its user-docu README
+   row if present, and add a *Documented* row to the archive README. Partially covered means the
+   folder stays and its maintenance row states exactly what remains.
 3. A backlog issue instead of a queue row → flip its `**Triage:**` to `done` with a `## Comments`
    line naming the PR.
-4. Stage explicitly (never `git add .`), commit, push the branch, `gh pr create --fill`.
+4. When repo files changed, stage explicitly (never `git add .`), commit, push the branch, and run
+   `gh pr create --fill`. A vault-only reconciliation opens no empty PR.
 5. Emit `<<<DOCS_PUBLISHED <unit-id>>>>`.
 
-✓ **Done when:** the PR is open, the queue matches reality, and the sentinel is the last line.
+✓ **Done when:** any required PR is open, all ledgers match reality, and the sentinel is the last
+line.
 
-## Critique pass — when there is no unit to build
+## Maintenance and saturation passes
 
-Coverage finishing is not the loop finishing. Alternate the two passes below, newest first: run
-**reader critique** if the last critique pass was a reconciliation, and vice versa. Read
-`memory/log.md`'s recent docs lines to see which it was.
+Coverage finishing is not completion. Work the exhaustive page and feature rows in
+`MAINTENANCE.md` through the two lanes in `references/maintenance.md`; do not sample while any row is
+`unreviewed` or `needs-review`. Only after both lanes are current at the same `origin/main` commit,
+walk one real reader journey in Docker and dedupe findings against open docs-coverage issues.
 
-### A. Reader critique — "the docs are a 100; find what makes them 120"
-
-Read the published documentation the way someone with a problem reads it, in the running Docker
-stack — never the dev server.
-
-1. **Walk it as a reader, not an author.** Pick a real question a user arrives with ("how do I fix a
-   wrong clock-out", "what does this rate mean"), start where they would start, and see whether the
-   docs answer it. Watch the console on every page. Sample rather than exhaust: the high-yield
-   probes are scroll and anchor behaviour, TOC accuracy, images at both themes and 375 px, search
-   hits (web), dead links, and pages whose claims the app no longer matches.
-2. **Hunt in this order:** broken behaviour and console errors · claims that are no longer true ·
-   missing edge cases and limits the feature actually has · screenshots that mislead (wrong account
-   state, stale UI, unreadable crop) · a page nothing links to from where the reader needs it ·
-   voice and structure drift from `references/voice.md`.
-3. **Dedupe before filing — this is the step that makes a pass useful.** Read the open issues in
-   `docs-coverage/issues/` and the `blocked` queue rows first. A finding that matches an open issue
-   is not a finding. Name near-misses in your report rather than filing them.
-4. **File at most 3** new issues, continuing the folder's numbering, each with testable acceptance
-   criteria: `ready-for-agent` when an agent can do it alone, `ready-for-human` when it needs a
-   product or design decision.
-5. **Fix in place only what is small and certain.** If a finding is a self-evident defect you can
-   correct in a few lines and prove in the browser (a broken anchor, an unscrollable container, a
-   dead link, a wrong label), fix it on a `documentation/fix-<slug>` branch, run the local gate, and
-   open the PR as an ordinary unit — then it needs no issue. Anything needing judgement about what
-   the docs should *say*, anything touching more than one page's structure, or anything you would
-   have to guess at: file it instead. When in doubt, file — a wrong fix ships, a wrong issue gets
-   read first.
-6. One `memory/log.md` line. Emit `<<<DOCS_CRITIQUE_FILED <count>>>>`, or `<<<DOCS_PUBLISHED
-   fix-<slug>>>>` if the pass ended in a fix PR, or `<<<DOCS_SATURATED>>>` if nothing survived the
-   dedupe and the honesty bar.
-
-### B. user-docu reconciliation — close the loop on shipped features
-
-`memory/AgCore/planning/user-docu/` holds the feature folders whose documentation is not yet
-confirmed. Take **one** folder per pass, oldest first by its README manifest row.
-
-1. Read its `PRD.md` and every file under `issues/`. Build the list of what a user would need to
-   know: the capability, its edge cases, its limits, and any external data source's currency and
-   precision.
-2. Check that list against what is actually published — the hub pages and the public pages the
-   manifest names. Verify in the browser, not from the registry alone.
-3. **Fully covered** → append the `## Documentation` section to its `PRD.md` (date, slugs, anything
-   deliberately not documented and why), move the folder to
-   `memory/AgCore/planning/archive/issues/<slug>/`, delete its `user-docu/README.md` row, add a
-   *Documented* row to the archive README manifest, and emit `<<<DOCS_ARCHIVED <slug>>>>`.
-4. **Gaps found** → file them as backlog issues (at most 3, same bar as above), record what remains
-   in the PRD's `## Documentation` section, leave the folder where it is, and emit
-   `<<<DOCS_CRITIQUE_FILED <count>>>>`.
-
-Archiving is a claim that a reader is properly served by what is published. Do not archive to make
-the folder count go down.
+File at most three evidence-backed issues, fix only a small certain defect in place, and emit the
+existing critique or publish sentinel. Emit `<<<DOCS_SATURATED>>>` only when the ledger is exhaustive
+and current, the user-docu directory has no unresolved folders, and the reader journey found
+nothing. Emit `<<<DOCS_COMPLETE>>>` only when that is also true and no coverage or backlog unit is
+available.
 
 ## When blocked
 
 A surface mid-redesign (check `memory/AgCore/planning/issues/` for in-flight work), a broken
-container, a gate that stays red after honest fixes: revert uncommitted changes, set the row to
+container, a gate that stays red after honest fixes: discard only this run's code-repository edits
+with safe, targeted changes (never reset or revert the vault), set the row to
 `blocked` with a one-line reason, and emit `<<<DOCS_BLOCKED <unit-id> <reason>>>>`. Next run takes
 the next row — blocked is a note for the human, not a retry queue.

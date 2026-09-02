@@ -1,8 +1,9 @@
 # docs-loop — autonomous documentation sweep
 
-Writes the whole AgCore documentation set, one section per cycle, and merges its own PRs. Two
-agents take turns: **codex (GPT-5.6 Sol, high effort)** writes a section, **claude (Sonnet 5)**
-reviews and merges its PR. A queue file in the vault is the memory, so the loop survives restarts.
+Writes the whole AgCore documentation set, one section per cycle, and merges its own PRs. Two fresh
+Codex runs take turns: **GPT-5.6 Sol at medium effort** writes a section, then **GPT-5.6 Luna at
+high effort** independently reviews and merges its PR. A queue file in the vault is the memory, so
+the loop survives restarts.
 
 ## Run it
 
@@ -10,6 +11,9 @@ reviews and merges its PR. A queue file in the vault is the memory, so the loop 
 cd ~/Projects/agcore-wt3          # any worktree; it uses that worktree's Docker stack + DB
 ~/.codex/skills/docs-loop/scripts/docs-loop.sh
 ```
+
+For one verification cycle, run
+`MAX_CYCLES=1 ~/.codex/skills/docs-loop/scripts/docs-loop.sh`.
 
 Run it inside **herdr** (see `memory/_cheat-sheets/herdr.md`) — the loop dies with its terminal otherwise.
 
@@ -29,15 +33,16 @@ It finishes the phase it is in (never mid-merge) and exits. Ctrl-C is a hard sto
 - Working tree must be **clean** (the loop refuses to touch uncommitted work).
 - The worktree's **Docker stack must be up** (`dc up -d`) — every claim gets verified in a browser.
 - The worktree's **DB must be current** on `db/migrations/`.
-- Needs `gh` authenticated, `codex`, `claude`, and ImageMagick (`convert`) on PATH.
+- Needs `gh` authenticated, `codex`, and ImageMagick (`convert`) on PATH.
 
 ## One cycle
 
 ```
 1. SYNC     ff this worktree's branch to origin/main
-2. MERGE    if a documentation/* PR is open → claude /do-pr auto #N  (review, gate, merge)
-3. BUILD    codex $docs-loop → ONE unit: queue row, else backlog issue, else critique pass
-4. WAIT     CYCLE_MINUTES, then repeat
+2. MERGE    if a documentation/* PR is open → Luna $do-pr auto #N  (review, gate, merge)
+3. SCAN     codex maps origin/main changes into the maintenance ledger
+4. BUILD    codex $docs-loop → ONE coverage, feature, stale-page, screenshot, or prose unit
+5. WAIT     CYCLE_MINUTES, then repeat
 ```
 
 Invariant: **at most one open `documentation/*` PR at a time.** Other branches (`feature/*`,
@@ -61,54 +66,57 @@ format and `**Triage:**` roles as every other AgCore tracker. The queue asks "is
 documented at all"; the backlog asks "is what we published any good". Critique passes write it,
 build runs consume it, and you can drop an issue in by hand any time.
 
-### What it does when the queue runs dry
+### The maintenance ledger
 
-Coverage finishing is not the loop finishing. With no `todo` row and no `ready-for-agent` issue, the
-run does a **critique pass**, alternating between two:
+`memory/AgCore/planning/docs-coverage/MAINTENANCE.md` inventories every live page, every
+screenshot-bearing page, and every folder physically present in `planning/user-docu/`. Each cycle
+compares its last scanned commit with `origin/main`, marks affected pages for review, then alternates
+between shipped-feature reconciliation and exhaustive page review. The filesystem is the feature
+queue; a missing row in `user-docu/README.md` cannot hide a folder.
 
-- **Reader critique** — reads the published docs in the running app the way a user with a problem
-  would, hunting broken behaviour, claims that are no longer true, missing edge cases, misleading
-  screenshots, and pages nothing links to. Dedupes against the open backlog, files at most 3 issues.
-  It may fix a small, certain defect in place (broken anchor, dead link, wrong label) and open a PR
-  instead; anything needing judgement about what the docs should *say* gets filed, not fixed.
-- **user-docu reconciliation** — takes one `planning/user-docu/` feature folder, checks its shipped
-  issues' edge cases and limits against what is actually published, then either files the gaps or —
-  if a reader is genuinely served — moves the folder to `planning/archive/issues/`, updates both
-  README manifests, and emits `DOCS_ARCHIVED`.
+### What it does when coverage is complete
 
-Two consecutive passes that find nothing stop the loop with `DOCS SATURATED`. The skill explicitly
-forbids manufacturing a finding to avoid that.
+Coverage finishing starts the maintenance rotation. The feature lane reads one complete
+`planning/user-docu/` record, including root tickets and implementation comments, and verifies that
+its PRs reached `origin/main`. The page lane takes the oldest stale or never-reviewed page, checks
+its prose and screenshots against Docker, and runs every changed page through the humanizer before
+the factual recheck. The lanes alternate so neither backlog can starve.
+
+Only after every page and feature row is current at the same commit does the loop run a final reader
+journey. Two consecutive journeys with nothing to file stop it with `DOCS SATURATED`.
 
 ### What each unit does
 
-Reads the relevant `planning/user-docu/` feature folder (PRD + issues) for background, verifies
-every claim against the running app in the browser, captures and annotates screenshots with
-ImageMagick, writes the pages, runs the full local gate (typecheck · lint · test · build), then
-opens a PR. Public pages go to **agcore-landing** (prospect-level orientation + SEO, per landing
-ADR 0001); detailed pages go to the gated **agcore-web** hub.
+Reads the complete relevant feature record, verifies merged behaviour against the running app,
+compares every embedded image with the current screen, captures replacements with ImageMagick,
+writes and humanizes the pages without changing their facts, runs the full local gate (typecheck ·
+lint · test · build), then opens a PR. Public pages go to **agcore-landing** (prospect-level
+orientation + SEO, per landing ADR 0001); detailed pages go to the gated **agcore-web** hub.
 
 ## Knobs
 
-All optional, set on the command line: `MERGE_MODEL=opus ~/.codex/.../docs-loop.sh`
+All optional, set on the command line: `MERGE_MODEL=gpt-5.6-sol ~/.codex/.../docs-loop.sh`
 
 | Env | Default | Meaning |
 |---|---|---|
 | `CYCLE_MINUTES` | `15` | wait between cycles |
-| `DOCS_MODEL` | *(codex config)* | codex model for the writer, e.g. `gpt-5.6-luna` |
-| `DOCS_EFFORT` | *(codex config)* | codex reasoning effort, e.g. `high` |
-| `MERGE_MODEL` | `sonnet` | model for the merge agent (`opus` = fewer retries, more cost) |
-| `MERGE_CONFIG_DIR` | `~/.claude-max-2` | which Claude account the merge agent uses |
+| `MAX_CYCLES` | `0` | stop after this many completed cycles; `0` runs continuously |
+| `DOCS_MODEL` | `gpt-5.6-sol` | codex model for the writer |
+| `DOCS_EFFORT` | `medium` | codex reasoning effort |
+| `MERGE_MODEL` | `gpt-5.6-luna` | Codex model for the independent merge review |
+| `MERGE_EFFORT` | `high` | reasoning effort for the merge review |
 | `MAIN_BRANCH` | `main` | branch PRs target |
 | `BASE_BRANCH` | *(current HEAD)* | the worktree branch to run on |
-| `CYCLE_MINUTES` / `MAX_DOCS_FAILS` | `15` / `3` | pacing, and consecutive non-publish cycles before stopping |
+| `MAX_DOCS_FAILS` | `3` | consecutive non-publish cycles before stopping |
 | `MAX_SATURATIONS` | `2` | consecutive critique passes finding nothing before the loop stops |
 | `AUTO_MIGRATE` | `1` | apply **non-data-destroying** pulled migrations to this worktree's DB and carry on; `0` = always stop for you |
-| `LOG_DIR` | `memory/AgCore/planning/docs-coverage/loop-logs` | per-run logs (`docs-*.log`, `merge-*.log`, `*.final.txt`, `git.log`, `gh.log`, `db.log`). Lives in the **vault**, beside the queue — never in the repo. Falls back to `./docs-loop-logs` if the vault is not mounted. |
+| `LOG_DIR` | `${XDG_STATE_HOME:-$HOME/.local/state}/agcore/docs-loop-logs` | per-run logs (`docs-*.log`, `merge-*.log`, `*.final.txt`, `git.log`, `gh.log`, `db.log`). Lives **outside the vault and the repo**: a raw run stream captures API keys, DSNs with passwords and JWTs, and the vault syncs to the owner's server. Machine-local state, never synced, never committed. |
 | `KEEP_RUNS` | `20` | at startup, delete all but the newest N `docs-*.log` and `merge-*.log`. `0` keeps everything. Sentinels and `git/gh/db.log` are never pruned. |
 | `PRETTY_OUTPUT` | `1` | condensed screen trace (tool + file + thinking); `0` shows the raw agent stream |
 
-The writer defaults to `~/.codex/config.toml` (`gpt-5.6-sol`, high effort); override per run with
-`DOCS_MODEL` / `DOCS_EFFORT`.
+The writer defaults to GPT-5.6 Sol at medium effort. The independent merger defaults to GPT-5.6
+Luna at high effort. Override them per run with `DOCS_MODEL` / `DOCS_EFFORT` and `MERGE_MODEL` /
+`MERGE_EFFORT`.
 
 ## What you see while it runs
 
@@ -122,7 +130,7 @@ agent codex
 done <<<DOCS_PUBLISHED h-kiosk-field>>>  [41k output tokens]
 ```
 
-Full streams stay in the vault at `memory/AgCore/planning/docs-coverage/loop-logs/`. Set `PRETTY_OUTPUT=0` for the raw view.
+Full streams stay outside the vault at `~/.local/state/agcore/docs-loop-logs/` — they capture secrets (API keys, DSNs with passwords, JWTs), so they must never sync or be committed. Set `PRETTY_OUTPUT=0` for the raw view.
 
 ## When it stops
 
@@ -130,15 +138,16 @@ Every stop prints a banner. Exit 0 = fine, 1 = needs you.
 
 | Banner | What to do |
 |---|---|
-| `DOCS QUEUE COMPLETE` | Queue and backlog both empty with nothing left to critique. Review any `blocked` rows. |
-| `DOCS SATURATED` | Two critique passes in a row found nothing worth filing. Not a failure — the docs are in good shape. Give it work (a queue row or a backlog issue) or leave it stopped. |
+| `DOCS QUEUE COMPLETE` | Coverage, maintenance, feature, and backlog work are clear. Review any `blocked` rows. |
+| `DOCS SATURATED` | Every ledger row is current and two final reader journeys found nothing worth filing. Give it work or leave it stopped. |
 | `STOP REQUESTED` | You asked for it. Restart when ready. |
+| `MAX CYCLES REACHED` | The requested finite run completed normally. |
 | `MIGRATION PULLED` / `MERGED` | The migration could destroy local data (or failed to apply). Apply it to this worktree's DB yourself — see `db.log` — then restart. |
 | `PRE-FLIGHT FAILED` | Read the lines above it — usually HEAD on a unit branch, or a dirty tree. |
 | `GIT STATE NEEDS A HUMAN` | Branch diverged or uncommitted work present. Resolve, restart. |
 | `INVARIANT BROKEN — N open documentation/* PRs` | Two docs PRs exist; merge or close one, restart. |
 | `PR #N BLOCKED at a gate` | A real review/CI/security failure. Read the PR comment. |
-| `REPEATED INCONCLUSIVE MERGES` | The merge agent gave up 3× on one PR. Merge it yourself or use `MERGE_MODEL=opus`. |
+| `REPEATED INCONCLUSIVE MERGES` | The merge agent gave up 3× on one PR. Inspect its logs or retry with `MERGE_MODEL=gpt-5.6-sol`. |
 | `TOO MANY NON-PUBLISHED CYCLES` | 3 blocked/failed units in a row. Check the queue's blocked reasons. |
 
 A single **blocked unit does not stop the loop** — the row gets a reason and the loop moves on.
@@ -151,8 +160,8 @@ A single **blocked unit does not stop the loop** — the row gets a reason and t
   `<<<DOCS_CRITIQUE_FILED n>>>`, `<<<DOCS_ARCHIVED slug>>>`, `<<<DOCS_SATURATED>>>`,
   `<<<DOCS_COMPLETE>>>`) are how agents talk to the script. The docs phase reads the sentinel from
   codex's **final-message file** (`-o *.final.txt`), so the prompt echo can never be mistaken for a
-  result; the merge phase leads with the GitHub state check and consults sentinels only for the
-  not-merged outcomes.
+  result. The merge phase uses its own Codex final-message file, leads with the GitHub state check,
+  and consults sentinels only for the not-merged outcomes.
 - **One unit per cycle** keeps each agent inside a fresh context and makes any failure cheap.
 - **Migrations are classified, not trusted.** Each worktree has its own database, so a migration
   merged elsewhere would otherwise leave this one lagging — and a lagging DB makes the app fail

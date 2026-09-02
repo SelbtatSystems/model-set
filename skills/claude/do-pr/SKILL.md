@@ -125,11 +125,11 @@ Run `/security-review` on the branch — autonomous: in a subagent, see *Modes*.
 severity:
 
 - **High/critical** — **you** (never the reporting subagent) **patch each on the PR branch, push, and re-run `/security-review`** — a fresh subagent — until none remain (the push lets CI re-validate). Cannot safely patch (ambiguous or large) → interactive: surface; autonomous: `<<<MERGE_BLOCKED #N security:<finding>>>`.
-- **Medium/low** — not blockers. Append each to the owning context's `SECURITY.md` as a deferred finding to be fixed later — format + file resolution in [`references/risk-playbooks.md`](references/risk-playbooks.md). Then continue.
+- **Medium/low** — not blockers. Append each to the owning context's `SECURITY-findings.md` (the append-only log beside its `SECURITY.md`, never `SECURITY.md` itself) as a deferred finding to be fixed later — format + file resolution in [`references/risk-playbooks.md`](references/risk-playbooks.md). Then continue.
 
 High-risk tiers (auth, multi-tenant, PII, legal/immutable docs, file upload) → also run the matching hand-checks in [`references/risk-playbooks.md`](references/risk-playbooks.md) on top of the automated review.
 
-**Done:** zero unresolved high/critical findings; every medium/low recorded in the owning `SECURITY.md`.
+**Done:** zero unresolved high/critical findings; every medium/low recorded in the owning `SECURITY-findings.md`.
 
 > **`/security-review` returning does NOT end this run.** It is one layer of `do-pr`, not the task.
 > Its report is an input to the merge decision, never the deliverable — do not summarise it and stop.

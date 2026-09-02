@@ -56,7 +56,7 @@ Read both before your first report. Short version:
 | Loop | Runner | Argument | Log dir | Stop file |
 |---|---|---|---|---|
 | **issue-loop** | `~/.claude/skills/issue-loop/scripts/issue-loop.sh` | the tracker folder — **required** | `./issue-loop-logs/` | `.issue-loop-stop` |
-| **docs-loop** | `~/.codex/skills/docs-loop/scripts/docs-loop.sh` | none | `memory/AgCore/planning/docs-coverage/loop-logs/` (**vault**) | `./scripts/stop-loop` |
+| **docs-loop** | `~/.codex/skills/docs-loop/scripts/docs-loop.sh` | none | `~/.local/state/agcore/docs-loop-logs/` (machine-local, **not** the vault) | `./scripts/stop-loop` |
 | **admin-loop** | `./scripts/admin-loop.sh` (in the repo) | none | `./loop-logs/` | `.admin-loop-stop` |
 
 Every cycle: sync the base branch → merge this loop's open PR via `/do-pr auto` → build one unit →
@@ -83,7 +83,7 @@ The **vault** is a Nextcloud folder symlinked into every worktree as `./memory`:
 | Feature trackers (the loops' work) | `memory/AgCore/planning/issues/<feature-slug>/issues/*.md` |
 | Docs coverage queue | `memory/AgCore/planning/docs-coverage/QUEUE.md` |
 | Docs quality backlog | `memory/AgCore/planning/docs-coverage/issues/` |
-| Docs loop logs | `memory/AgCore/planning/docs-coverage/loop-logs/` |
+| Docs loop logs | `~/.local/state/agcore/docs-loop-logs/` (outside the vault — streams hold secrets) |
 | Features awaiting documentation | `memory/AgCore/planning/user-docu/` |
 | Finished + documented work | `memory/AgCore/planning/archive/issues/` |
 | Change log | `memory/log.md` |

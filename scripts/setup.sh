@@ -315,6 +315,9 @@ for host in claude codex opencode; do
   ok "$host: ${linked_count[$host]} skills -> ${HOST_SKILL_DIRS[$host]}"
 done
 
+# Extra Claude profiles (CLAUDE_CONFIG_DIR) mirror the primary — see lib/manifest.sh.
+"$SCRIPT_DIR/sync-claude-profiles.sh"
+
 # ---------------------------------------------------------------------------
 # 4. Shell environment
 # ---------------------------------------------------------------------------

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────
-# dual-agent docs loop (ralph loop for the docs-loop skill):
+# two-phase Codex docs loop (ralph loop for the docs-loop skill):
 #   each cycle: fast-forward THIS worktree's branch to main → MERGE any open PR → DOCUMENT next unit → wait
-#   codex runs $docs-loop (write docs); claude runs /do-pr auto (review+merge)
+#   GPT-5.6 Sol runs $docs-loop (write docs); GPT-5.6 Luna runs $do-pr auto (review+merge)
 # invariant: at most ONE open documentation/* PR exists at any time (other PRs are ignored).
 # stops on: queue complete, a blocked PR, an unexpected state, ./scripts/stop-loop, Ctrl-C.
 # sentinel contract lives in the docs-loop SKILL.md — change a sentinel there → change it here too.
@@ -16,29 +16,24 @@ MAIN_BRANCH="${MAIN_BRANCH:-main}"        # integration branch: PRs target it, m
 BASE_BRANCH="${BASE_BRANCH:-}"            # this worktree's own branch to run on; empty = auto-detect current HEAD
 STOP_FILE="${STOP_FILE:-.loop-stop}"      # ./scripts/stop-loop drops this flag
 WIKI_DIR="${WIKI_DIR:-./memory}"          # docs coverage queue lives here
-# Logs live in the vault beside the queue they belong to, NOT in the repo — the vault is
-# gitignored and backed up, so run history survives a worktree being deleted and can never
-# be committed by accident. Falls back to the worktree only if the vault is not mounted,
-# because mkdir -p would otherwise create a real ./memory directory that shadows the symlink.
-if [ -z "${LOG_DIR:-}" ]; then
-  if [ -d "$WIKI_DIR/AgCore/planning/docs-coverage" ]; then
-    LOG_DIR="$WIKI_DIR/AgCore/planning/docs-coverage/loop-logs"
-  else
-    LOG_DIR="./docs-loop-logs"
-  fi
-fi
+# Logs live OUTSIDE the vault and OUTSIDE the repo, in machine-local XDG state. A raw agent
+# run stream captures API keys, Postgres DSNs with passwords and JWTs; the vault syncs to the
+# owner's server and the repo is public, so neither may hold them. State survives a worktree
+# being deleted and can never be committed or synced by accident.
+LOG_DIR="${LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agcore/docs-loop-logs}"
 KEEP_RUNS="${KEEP_RUNS:-20}"              # prune run logs older than the newest N (0 = keep all)
 MAX_DOCS_FAILS="${MAX_DOCS_FAILS:-3}"     # consecutive non-published outcomes → stop
+MAX_CYCLES="${MAX_CYCLES:-0}"             # 0 = unlimited; positive value stops after that many complete cycles
 AUTO_MIGRATE="${AUTO_MIGRATE:-1}"         # 1 = apply purely additive migrations here; 0 = always stop for a human
 DOCKER_DIR="${DOCKER_DIR:-./infrastructure/docker}"
 DC_ENV_FILE="${DC_ENV_FILE:-../../.env}"  # relative to DOCKER_DIR (matches the dc() helper)
 DB_USER="${DB_USER:-agcore_user}"
 DB_NAME="${DB_NAME:-agcore_db}"
 PULLED_MIGRATIONS=()                      # filled by prep_worktree each sync
-DOCS_MODEL="${DOCS_MODEL:-}"              # codex model for the writer ('' = ~/.codex/config.toml default)
-DOCS_EFFORT="${DOCS_EFFORT:-}"            # codex reasoning effort ('' = config default)
-MERGE_MODEL="${MERGE_MODEL:-sonnet}"      # model for the /do-pr merge agent (docs PRs are mechanical)
-MERGE_CONFIG_DIR="${MERGE_CONFIG_DIR:-$HOME/.claude-max-2}"  # claude account for the merge agent only
+DOCS_MODEL="${DOCS_MODEL:-gpt-5.6-sol}"   # codex model for the writer
+DOCS_EFFORT="${DOCS_EFFORT:-medium}"      # codex reasoning effort
+MERGE_MODEL="${MERGE_MODEL:-gpt-5.6-luna}" # codex model for the independent /do-pr merge pass
+MERGE_EFFORT="${MERGE_EFFORT:-high}"      # smaller merge model gets the deeper reasoning pass
 PUBLISHED_TOKEN="<<<DOCS_PUBLISHED"       # prefix: skill appends " <unit-id>>>>"
 BLOCKED_TOKEN="<<<DOCS_BLOCKED"           # prefix: skill appends " <unit-id> <reason>>>>"
 COMPLETE_TOKEN="<<<DOCS_COMPLETE>>>"      # queue AND backlog empty and nothing left to critique
@@ -93,27 +88,6 @@ render() {
   fi
 }
 
-# The agent's FINAL message, extracted from the stream-json log. Merge sentinels are matched
-# against THIS, never the raw stream: an agent that merely *narrates* the contract mid-run
-# ("...else report <<<MERGE_BLOCKED #N reason>>>") would otherwise read as having emitted it.
-# That false positive stopped this loop on a healthy PR (#796, 2026-08-03). The docs phase
-# already had this right — it reads codex's -o final file for the same reason.
-final_message() {  # final_message <stream-json-logfile>
-  command -v python3 >/dev/null 2>&1 || { cat "$1"; return; }
-  python3 - "$1" <<'PY' 2>/dev/null
-import json, sys
-out = ""
-for line in open(sys.argv[1], errors="replace"):
-    try:
-        d = json.loads(line)
-    except Exception:
-        continue
-    if d.get("type") == "result" and isinstance(d.get("result"), str):
-        out = d["result"]
-print(out)
-PY
-}
-
 # graceful exit when ./scripts/stop-loop dropped the flag
 check_stop() {
   if [ -f "$STOP_FILE" ]; then
@@ -140,6 +114,9 @@ countdown() {
 # ---- pre-flight: fail fast before burning a cycle ------------------------
 preflight() {
   step "Pre-flight checks…"
+  case "$MAX_CYCLES" in
+    ''|*[!0-9]*) err "MAX_CYCLES must be a non-negative integer"; return 1 ;;
+  esac
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { err "not inside a git repo"; return 1; }
   # Run on THIS worktree's branch — never `git switch` to MAIN_BRANCH, which is
   # usually checked out in another worktree (that switch would fail).
@@ -156,7 +133,6 @@ preflight() {
     return 1 ;;
   esac
   command -v gh     >/dev/null 2>&1 || { err "gh not on PATH";     return 1; }
-  command -v claude >/dev/null 2>&1 || { err "claude not on PATH"; return 1; }
   command -v codex  >/dev/null 2>&1 || { err "codex not on PATH";  return 1; }
   command -v convert >/dev/null 2>&1 || { err "ImageMagick 'convert' not on PATH (screenshot annotation)"; return 1; }
   gh auth status >/dev/null 2>&1 || { err "gh not authenticated (run: gh auth login)"; return 1; }
@@ -256,22 +232,30 @@ open_pr_number() {
     --jq '[.[] | select(.headRefName | startswith("documentation/"))][0].number' 2>>"$LOG_DIR/gh.log"
 }
 
-# ---- merge phase (claude /do-pr auto #N) ------------------------------
+# ---- merge phase (codex $do-pr auto #N) ---------------------------------
 # returns 0 = merged, 2 = blocked, 3 = no PR, 1 = unknown/agent failure
 run_merge() {
   local pr="$1" logfile="$LOG_DIR/merge-$(date +%Y%m%d-%H%M%S).log"
-  step "Launching Claude Code → /do-pr auto #${pr} …"
+  local final="${logfile%.log}.final.txt"
+  local model_args=()
+  [ -n "$MERGE_MODEL" ]  && model_args+=(-m "$MERGE_MODEL")
+  [ -n "$MERGE_EFFORT" ] && model_args+=(-c "model_reasoning_effort=$MERGE_EFFORT")
+  step "Launching codex → \$do-pr auto #${pr} …"
   log "streaming below + → ${D}$logfile${R}"
-  CLAUDE_CONFIG_DIR="$MERGE_CONFIG_DIR" claude --model "$MERGE_MODEL" \
-    --permission-mode bypassPermissions --output-format stream-json --verbose \
-    --print "/do-pr auto #${pr}" </dev/null 2>&1 | tee "$logfile" | render
+  codex exec --json --yolo "${model_args[@]}" -o "$final" \
+    "Run the \$do-pr skill in autonomous mode for PR #${pr}. Complete every review, security, \
+local gate, runtime, and CI requirement before deciding whether to merge. End with exactly one \
+merge sentinel on its own line, as the skill specifies." \
+    </dev/null 2>&1 | tee "$logfile" | render
   local rc=${PIPESTATUS[0]}
+  local hay="$final"
+  [ -s "$final" ] || hay="$logfile"
   # Ground truth first: models decorate or omit the sentinel, but GitHub cannot lie about
   # whether the PR merged. Sentinels are only consulted for the not-merged outcomes.
   local state; state=$(gh pr view "$pr" --json state --jq .state 2>>"$LOG_DIR/gh.log")
   if   [ "$state" = "MERGED" ];                     then ok "Merged PR #${pr} (verified on GitHub)."; return 0
-  elif final_message "$logfile" | grep -qF "<<<MERGE_BLOCKED"; then err "do-pr blocked PR #${pr}."; return 2
-  elif final_message "$logfile" | grep -qF "<<<NO_OPEN_PR>>>"; then warn "do-pr found no open PR."; return 3
+  elif grep -qF "<<<MERGE_BLOCKED" "$hay"; then err "do-pr blocked PR #${pr}."; return 2
+  elif grep -qF "<<<NO_OPEN_PR>>>" "$hay"; then warn "do-pr found no open PR."; return 3
   else err "do-pr ended with no sentinel (rc=$rc) — treating as unknown state";           return 1
   fi
 }
@@ -290,9 +274,9 @@ run_docs() {
   [ -n "$DOCS_MODEL" ]  && model_args+=(-m "$DOCS_MODEL")
   [ -n "$DOCS_EFFORT" ] && model_args+=(-c "model_reasoning_effort=$DOCS_EFFORT")
   codex exec --json --yolo "${model_args[@]}" -o "$final" \
-    "Run the \$docs-loop skill: work exactly one unit — the next queue row, else the next \
-ready-for-agent issue in docs-coverage/issues, else a critique pass — opening a PR against \
-${MAIN_BRANCH} when the local gate is green. \
+    "Run the \$docs-loop skill. Start with its origin/${MAIN_BRANCH} change-impact scan, update the \
+maintenance ledger, then work exactly one unit under its recovery, coverage, alternating feature/page, \
+and saturation precedence. Open a PR against ${MAIN_BRANCH} when the local gate is green. \
 End with exactly one sentinel on its own line, as the skill specifies." \
     </dev/null 2>&1 | tee "$logfile" | render   # stdin closed: codex waits on a piped stdin otherwise
   local rc=${PIPESTATUS[0]}
@@ -318,7 +302,7 @@ docs_fails=0
 saturations=0
 banner "DOCS LOOP STARTING"
 log "cycle=${CYCLE_MINUTES}m  base=${BASE_BRANCH}  main=${MAIN_BRANCH}  wiki=${WIKI_DIR}"
-log "models: writer=${DOCS_MODEL:-codex default}${DOCS_EFFORT:+ (${DOCS_EFFORT})}  merge=${MERGE_MODEL}"
+log "models: writer=${DOCS_MODEL}${DOCS_EFFORT:+ (${DOCS_EFFORT})}  merge=${MERGE_MODEL}${MERGE_EFFORT:+ (${MERGE_EFFORT})}"
 log "logs:  ${LOG_DIR}${D}  (keeping newest ${KEEP_RUNS} runs)${R}"
 log "stop gracefully: ${B}./scripts/stop-loop${R}${D}  (from another terminal)${R}"
 prune_old_logs
@@ -370,7 +354,7 @@ while :; do
   case "$drc" in
     0)  docs_fails=0; saturations=0 ;;
     3)  docs_fails=0; saturations=0 ;;                            # critique filed / folder archived
-    10) stop_loop "DOCS QUEUE COMPLETE — every unit published or blocked; review blocked rows" 0 ;;
+    10) stop_loop "DOCS COMPLETE — coverage, maintenance, feature, and backlog work are clear; review blocked rows" 0 ;;
     11) saturations=$((saturations+1))                            # a critique pass that found nothing
         warn "critique saturated ${saturations}/${MAX_SATURATIONS}"
         [ "$saturations" -ge "$MAX_SATURATIONS" ] \
@@ -379,6 +363,10 @@ while :; do
         warn "non-published outcome ${docs_fails}/${MAX_DOCS_FAILS} — continuing"
         [ "$docs_fails" -ge "$MAX_DOCS_FAILS" ] && stop_loop "TOO MANY NON-PUBLISHED CYCLES — stopping" 1 ;;
   esac
+
+  if [ "$MAX_CYCLES" -gt 0 ] && [ "$cycle" -ge "$MAX_CYCLES" ]; then
+    stop_loop "MAX CYCLES REACHED — completed ${cycle} cycle(s)" 0
+  fi
 
   check_stop
   banner "CYCLE $cycle DONE — waiting ${CYCLE_MINUTES}m"

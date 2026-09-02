@@ -1,6 +1,6 @@
 ---
 name: to-user-docs
-description: Pick one completed feature from planning/user-docu/, write its Documentation hub pages in agcore-web, verify them in the browser, then retire the folder to planning/archive/issues/. Use when the user wants to write user documentation, document a shipped feature, work the docs queue, or says "write the docs for X" / "pick up the next user-docu ticket". The documentation end of the to-plan → do-plan → to-prd → to-issues → do-issue → do-pr pipeline.
+description: "Interactive one-feature documentation pass for a completed planning/user-docu folder: read its full implementation record, verify merged behaviour and screenshots, publish its pages, and retire it when fully covered. Use when the user names a shipped feature to document; use docs-loop for the autonomous whole-app queue."
 ---
 
 # To User Docs
@@ -13,9 +13,10 @@ scripts there.
 
 ## Read these first, every run
 
-- `memory/AgCore/planning/user-docu/README.md` — the queue, the manifest (what each feature shipped
-  and which pillar it feeds), and the audience/terminology caveats.
-- `memory/AgCore/planning/issues/documentation-hub/PRD.md` — the hub's contract: four Diátaxis
+- `memory/AgCore/planning/user-docu/README.md` — maintained summary and audience/terminology
+  caveats. The physical directories are the authoritative queue; a missing manifest row does not
+  hide a feature.
+- `memory/AgCore/planning/user-docu/documentation-hub/PRD.md` — the hub's contract: four Diátaxis
   pillars, sidebar order, registry as single source of truth, TSX authoring (not MDX), planned-page
   rules, anchor/deep-link contract.
 - The owning context's `CONTEXT.md` glossary. Every `_Avoid_:` line is a **banned word list** —
@@ -25,16 +26,21 @@ scripts there.
 
 ### 1. Select the feature
 
-If the user named one, use it. Otherwise list `memory/AgCore/planning/user-docu/` and show each
-folder's manifest row (target pillar + what shipped), then ask which to document. Prefer the row the
-manifest marks highest-impact when the user has no preference.
+If the user named one, use it. Otherwise list every physical directory under
+`memory/AgCore/planning/user-docu/`, adding its README manifest hints when present, then ask which to
+document. Do not select from README alone.
 
-✓ **Done when:** exactly one folder is chosen and you have read its `PRD.md` and every file under
-its `issues/`.
+Recursively read every Markdown file in the selected folder: PRD, plan, map, `NEEDS-HUMAN`, guide,
+conventional `issues/`, root numbered tickets, implementation reports, provenance, and comments.
+Extract linked implementation PRs and confirm the relevant behaviour is in `origin/main`.
+
+✓ **Done when:** exactly one folder is chosen, every Markdown record was read, and its merged state
+is known.
 
 ### 2. Establish what is actually true today
 
-A PRD is what was intended, not what runs. Before writing a word:
+A PRD is what was intended, not what runs. Work from a fresh `origin/main`; never document an open
+feature branch. Before writing a word:
 
 - **Read the shipped code** for the surfaces the feature describes. Later features amend earlier
   ones — the PRD may describe a screen that has since been redesigned.
@@ -82,7 +88,8 @@ Ask the user to confirm the page set. Do not write pages they did not agree to.
 - Write for a farmer or their office manager. Short sentences. The task, then the steps, then the
   edge case. Where a rule is legal (award floor, attestation text, record-keeping), say so plainly
   and link the Fair Work source rather than paraphrasing the law.
-- If the repo has a `writing-guidelines` skill, run the pages past it.
+- After the factual draft, invoke `$humanizer:humanizer` in file mode. Recheck every claim, exact UI
+  label, legal wording, number, link, metadata value, and stable heading id against the evidence.
 
 ✓ **Done when:** every approved page renders, has a working TOC, and the registry data test
 (`docsRegistry.test.ts`) passes with the new entries.
@@ -94,19 +101,25 @@ Ask the user to confirm the page set. Do not write pages they did not agree to.
   highlights, prev/next skips planned entries, search finds the page (once Cmd+K ships), and no page
   appears in search that is still `planned`. Fix **all** console errors.
 - Both themes and a 375px viewport.
+- Compare every existing or new screenshot on the touched pages with the same live state. Replace
+  images whose labels, controls, layout, state, density, or visible styling no longer match.
 
 ✓ **Done when:** local gate green, browser clean, screenshots taken.
 
 ### 6. Retire the folder
 
-Only when every page in the manifest row for that feature has shipped:
+Only when every user-facing behaviour from every feature file is mapped to a live page section or
+excluded with a specific reason, the implementation is in `origin/main`, no active redesign
+supersedes it, the humanizer and screenshot checks passed, and the browser/local gates are green:
 
-1. Append a `## Documentation` section to the feature's `PRD.md` — the date, the slugs published, and
-   anything from the PRD you deliberately did **not** document (with the reason).
+1. Append a `## Documentation` section to the feature's `PRD.md`: date, verified `origin/main`
+   commit, slugs, screenshot status, and anything deliberately omitted with the reason.
 2. Move `memory/AgCore/planning/user-docu/<slug>/` → `memory/AgCore/planning/archive/issues/<slug>/`.
 3. Delete that feature's row from the `user-docu/README.md` manifest and add a row to the
    `archive/issues/README.md` manifest (kind 2: *Documented*).
-4. Append one line to `memory/log.md`.
+4. Remove the feature row from `planning/docs-coverage/MAINTENANCE.md` and update every affected page
+   row with its source mapping, screenshot state, verified commit, and status.
+5. Append one line to `memory/log.md`.
 
 If only part of the row shipped, the folder **stays** — record progress in the PRD's
 `## Documentation` section and say what remains.
@@ -126,5 +139,8 @@ in the queue.
   employer's side rather than dropping it.
 - **The queue is not the truth.** `planning/user-docu/` records what was built; the running app
   records what is. When they disagree, the app wins and the PRD gets a note.
+- **Autonomous queue ownership.** `docs-loop` owns whole-app scanning, alternation, screenshot
+  freshness, and saturation. This skill is the interactive one-feature entry point and follows the
+  same evidence and archive gates.
 - **Never edit `planning/issues/`** from this skill — that is the live work queue, owned by
   `to-issues` / `triage` / `do-issue`.

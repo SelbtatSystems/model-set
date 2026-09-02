@@ -4,24 +4,44 @@ Hand-checks the automated review skills do not run. Reach for the playbook that 
 
 ## Recording deferred security findings
 
-Medium/low `/security-review` findings are **not** merge blockers — record them for later in the owning context's `SECURITY.md`, then merge.
+Medium/low `/security-review` findings are **not** merge blockers — record them for later in the owning context's `SECURITY-findings.md`, then merge. Each context keeps two files side by side: `SECURITY.md` holds the curated rules and must stay small, `SECURITY-findings.md` is the append-only log. **Never append a finding to `SECURITY.md`.**
 
 **Resolve the file** from the linked ticket's `**App:**` value (or, with no ticket, the app directory the changed files live under):
 
-| `**App:**` | `SECURITY.md` |
+| `**App:**` | findings log |
 | --- | --- |
-| `backend` | `memory/backend/SECURITY.md` |
-| `agcore-web` | `memory/apps/AgCore-web/SECURITY.md` |
-| `myfarmjob-web` | `memory/apps/MyFarmJob/SECURITY.md` |
-| `eform` | `memory/apps/eForm/SECURITY.md` |
-| `agcore-landing` | `memory/apps/AgCore-landing/SECURITY.md` |
-| `myfarmjob-landing` | `memory/apps/MyFarmJob-landing/SECURITY.md` |
-| `admin-web` | `memory/apps/Admin-web/SECURITY.md` |
-| `shared` / cross-cutting | `memory/docs/SECURITY.md` |
+| `backend` | `memory/AgCore/backend/SECURITY-findings.md` |
+| `agcore-web` | `memory/AgCore/apps/AgCore-web/SECURITY-findings.md` |
+| `myfarmjob-web` | `memory/AgCore/apps/MyFarmJob/SECURITY-findings.md` |
+| `eform` | `memory/AgCore/apps/eForm/SECURITY-findings.md` |
+| `agcore-landing` | `memory/AgCore/apps/AgCore-landing/SECURITY-findings.md` |
+| `myfarmjob-landing` | `memory/AgCore/apps/MyFarmJob-landing/SECURITY-findings.md` |
+| `admin-web` | `memory/AgCore/apps/Admin-web/SECURITY-findings.md` |
+| `shared` / cross-cutting | `memory/AgCore/docs/SECURITY-findings.md` |
 
-This map is AgCore/MyFarmJob-specific — use it only when `./memory` resolves. Other repos: resolve via the repo's own context map, else fall back to the repo's `docs/SECURITY.md`. The target file is missing entirely → fall back to `docs/SECURITY.md` and note it in the report.
+This map is AgCore/MyFarmJob-specific — use it only when `./memory` resolves. Other repos: resolve via the repo's own context map, else fall back to the repo's `docs/SECURITY-findings.md`. The target file is missing entirely → create it beside that context's `SECURITY.md`; no `SECURITY.md` either → fall back to `docs/SECURITY-findings.md` and note it in the report.
 
-**Write the file only — never run `git` or scripts in `memory/`** (the wiki's own agent commits + reindexes). Append under a dedicated heading so curated invariants are never touched — create the heading once if absent, then append a dated bullet per finding (newest last):
+**Creating the log file** (AgCore vault only): `SECURITY.md` is lint-exempt but `SECURITY-findings.md` is not, so it needs frontmatter —
+
+```markdown
+---
+title: "<Context> — security findings log"
+type: reference
+product: agcore
+app: <backend | agcore-web | myfarmjob-web | eform | agcore-landing | myfarmjob-landing | admin-web | shared>
+tags: [security]
+created: <YYYY-MM-DD>
+updated: <YYYY-MM-DD>
+related:
+  - "[[AgCore/<context path>/SECURITY]]"
+---
+
+# <Context> — security findings log
+
+Append-only log written by do-pr / security-review. The rules live in [[AgCore/<context path>/SECURITY|SECURITY]].
+```
+
+**Write the file only — never run `git` or scripts in `memory/`** (the wiki's own agent commits + reindexes). Append under the log's dedicated heading — create the heading once if absent, then append a dated bullet per finding (newest last):
 
 ```markdown
 ## Deferred findings (merge-pr)
@@ -29,7 +49,7 @@ This map is AgCore/MyFarmJob-specific — use it only when `./memory` resolves. 
 - 2026-06-29 · PR #52 · low · apps/eForm/.../Field.tsx — <one-line finding + suggested fix>
 ```
 
-One bullet per finding: `date · PR# · severity · file · finding + fix`.
+One bullet per finding: `date · PR# · severity · file · finding + fix`. Bump the file's `updated:` date in the same edit.
 
 ## DB migrations
 

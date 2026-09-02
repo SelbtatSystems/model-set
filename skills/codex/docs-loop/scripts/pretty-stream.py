@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Condense an agent's JSON event stream into one line per action.
-
-Understands both feeds used by the loops:
-  · Claude Code  --print --output-format stream-json --verbose
-  · codex exec   --json
+"""Condense a ``codex exec --json`` event stream into one line per action.
 
 Reads JSONL on stdin, writes a short human-followable trace on stdout:
   · what the agent is thinking (trimmed)
@@ -35,24 +31,6 @@ def flat(text, limit):
     """One line, collapsed whitespace, truncated."""
     s = " ".join(str(text).split())
     return s if len(s) <= limit else s[: limit - 1] + "…"
-
-
-def target_of(name, params):
-    """The most useful 'what is it acting on' string for a tool call."""
-    if not isinstance(params, dict):
-        return ""
-    for key in ("file_path", "notebook_path", "path"):
-        if params.get(key):
-            return flat(params[key], 100)
-    if params.get("command"):
-        return flat(params["command"], 100)
-    if params.get("pattern"):
-        where = params.get("path") or params.get("glob") or ""
-        return flat(f"{params['pattern']} {where}".strip(), 100)
-    for key in ("url", "skill", "description", "query", "prompt", "subagent_type"):
-        if params.get(key):
-            return flat(params[key], 100)
-    return ""
 
 
 def emit(label, colour, body):
@@ -122,44 +100,6 @@ def handle(event):
     kind = event.get("type", "")
     if kind.startswith(("thread.", "turn.", "item.")):
         handle_codex(event)
-        return
-
-    if kind == "system" and event.get("subtype") == "init":
-        emit("agent", "36", f"{event.get('model', '?')} in {event.get('cwd', '?')}")
-        return
-
-    if kind == "assistant":
-        for block in event.get("message", {}).get("content", []):
-            btype = block.get("type")
-            if btype == "thinking":
-                thought = flat(block.get("thinking", ""), 140)
-                if thought:
-                    emit("  ·", THINKING, paint(THINKING, thought))
-            elif btype == "text":
-                said = flat(block.get("text", ""), 160)
-                if said:
-                    emit("  »", SAYS, paint(SAYS, said))
-            elif btype == "tool_use":
-                name = block.get("name", "?")
-                emit("  →", "33", f"{paint('1', name)} {target_of(name, block.get('input'))}")
-        return
-
-    if kind == "result":
-        cost = event.get("total_cost_usd")
-        turns = event.get("num_turns")
-        meta = " ".join(
-            part
-            for part in (
-                f"{turns} turns" if turns else "",
-                f"${cost:.2f}" if isinstance(cost, (int, float)) else "",
-            )
-            if part
-        )
-        emit("done", "32", flat(event.get("result", ""), 200) + (f"  [{meta}]" if meta else ""))
-        return
-
-    if kind == "system" and event.get("subtype") == "error":
-        emit("ERROR", "31", flat(event.get("message", event), 200))
 
 
 def main():

@@ -36,3 +36,12 @@ declare -A HOST_SKILL_DIRS=(
   [opencode]="$HOME/.config/opencode/skills"
   [agents]="$HOME/.agents/skills"
 )
+
+# Claude Code profiles (CLAUDE_CONFIG_DIR). ~/.claude is the primary — setup.sh
+# links skills/agents there — and every other profile mirrors it through
+# scripts/sync-claude-profiles.sh, so the three never drift apart again.
+CLAUDE_PROFILE_DIRS=(
+  "$HOME/.claude"
+  "$HOME/.claude-max-1"
+  "$HOME/.claude-max-2"
+)

@@ -79,13 +79,23 @@
     "gpt-image": "on",
     "react-native-skills": "off",
     "research": "user-invocable-only",
-    "seedance-video": "on",
+    "seedance-video": "user-invocable-only",
     "sogni": "user-invocable-only",
-    "sogni-creative-agent:loop-maker": "on",
-    "sogni-creative-agent:sogni-creative-agent": "on",
+    "sogni-creative-agent:loop-maker": "user-invocable-only",
+    "sogni-creative-agent:sogni-creative-agent": "user-invocable-only",
     "tdd": "user-invocable-only",
     "to-plan": "user-invocable-only",
-    "writing-guidelines": "user-invocable-only"
+    "writing-guidelines": "user-invocable-only",
+    "codebase-design": "user-invocable-only",
+    "composition-patterns": "user-invocable-only",
+    "frontend-design": "user-invocable-only",
+    "improve-codebase-architecture": "user-invocable-only",
+    "skill-creator": "user-invocable-only",
+    "to-user-docs": "user-invocable-only",
+    "writing-for-agents": "user-invocable-only",
+    "issue-loop": "user-invocable-only",
+    "teach": "user-invocable-only",
+    "zoom-out": "user-invocable-only"
   },
   "disableArtifact": true,
   "statusLine": {
@@ -93,7 +103,7 @@
     "command": "bash -c 'python3 \"$HOME/.claude/scripts/context-monitor.py\"'"
   },
   "enabledPlugins": {
-    "stripe@claude-plugins-official": true,
+    "stripe@claude-plugins-official": false,
     "warp@claude-code-warp": true
   },
   "extraKnownMarketplaces": {
@@ -106,5 +116,6 @@
   },
   "effortLevel": "high",
   "tui": "fullscreen",
-  "theme": "dark-ansi"
+  "theme": "dark-ansi",
+  "model": "claude-fable-5-1[1m]"
 }

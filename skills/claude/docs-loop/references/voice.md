@@ -38,3 +38,15 @@ that's Xero, not you"); prefer a concrete example over a general claim.
 
 Read the page aloud. Any sentence that sounds like a brochure gets rewritten; any sentence you would
 not say to a neighbour gets shortened until you would.
+
+## Humanizer gate
+
+After the factual draft is complete, invoke `$humanizer:humanizer` in file mode on every new or
+materially edited documentation page. Humanize prose only. Keep code, TSX structure, HTML, metadata,
+heading ids, link targets, image paths, exact interface labels, legal wording, names, dates, and
+numbers unchanged.
+
+Then compare the rewritten page with the evidence checklist and the live app. Treat a missing,
+softened, broadened, or invented claim as a failed gate. Fix it and repeat the humanizer check before
+publishing. The humanizer pass complements this voice guide; it does not replace the glossary,
+Diátaxis, legal-source, or live-verification rules.

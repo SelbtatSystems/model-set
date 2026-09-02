@@ -11,6 +11,10 @@
 - Shoot real-looking sample data, not empty states — create data through the UI first if the
   worktree DB is bare. Never capture a TFN, bank detail, or signature field with a value in it.
 
+Before keeping an existing image, recreate the state it claims to show and compare it with the live
+surface. A screenshot is stale when its labels, controls, layout, state, density, or visible styling
+would make a reader look for the wrong thing. An invisible refactor does not make it stale.
+
 Known traps in this app: re-run `snapshot -i` after any navigation (refs invalidate); div-onClick
 cards, hover-revealed buttons, and save buttons low on long settings pages often need DOM
 `.click()` via JS eval rather than `click @ref`; the eForm super-fund combobox commits on
@@ -62,3 +66,8 @@ Piece by piece:
 - Alt text says what the reader is doing or seeing ("The Clock on button on the kiosk, circled"),
   never "screenshot of...".
 - If a shot needs to be bigger or sharper, retake it — never upscale.
+
+Record each final in the selected page's `MAINTENANCE.md` notes: image path, page section, route,
+fixture/account state, role, viewport, density, theme, annotation purpose, and verified
+`origin/main` commit. Keep the existing filename when the teaching point is unchanged. A new teaching
+point gets a new numbered filename.

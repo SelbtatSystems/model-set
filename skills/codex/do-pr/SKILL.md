@@ -102,13 +102,17 @@ diff is confirmed in scope.
 
 ## Step 3 — Code review
 
-1. Run `codex review` against the branch.
-2. Set depth from the tier: low → default. Medium → ask for a thorough pass.
-   High → ask for an exhaustive pass and review the diff yourself as well.
-3. Triage every correctness finding it returns. For each one, do exactly one of:
+1. Run `codex review --base origin/<base-branch>`. With `--base`, the CLI does not accept an
+   additional prompt; do not retry by combining those two forms.
+2. Set depth from the tier: low → use the default review. Medium → follow it with your own thorough
+   diff pass. High → follow it with an exhaustive diff pass yourself.
+3. If nested `codex review` cannot start because its sandbox or user namespace is unavailable,
+   review `git diff origin/<base-branch>...HEAD` yourself at the same tier depth and state that the
+   automated review was degraded. A tool failure is not a clean review result.
+4. Triage every correctness finding it returns. For each one, do exactly one of:
    - Fix it on the branch.
    - Dismiss it with a one-line reason.
-4. Do not leave a finding unaddressed. "Probably fine" is not a dismissal —
+5. Do not leave a finding unaddressed. "Probably fine" is not a dismissal —
    write the reason.
 
 **Do not continue until:** every correctness finding is fixed or explicitly
@@ -141,12 +145,13 @@ See `## Degraded vs Claude` at the end of this file for what that costs you.
    interactive → surface it. Autonomous → emit
    `<<<MERGE_BLOCKED #N security:<finding>>>` and stop.
 6. For each **medium or low** finding: append it to the owning context's
-   `SECURITY.md` as a deferred finding. Format and file resolution are in
+   `SECURITY-findings.md` — the append-only log beside its `SECURITY.md`,
+   never `SECURITY.md` itself — as a deferred finding. Format and file resolution are in
    [`references/risk-playbooks.md`](references/risk-playbooks.md). These do not
    block the merge.
 
 **Do not continue until:** zero unresolved high or critical findings, and every
-medium or low finding is recorded in the owning `SECURITY.md`.
+medium or low finding is recorded in the owning `SECURITY-findings.md`.
 
 ## Step 5 — Static checks
 

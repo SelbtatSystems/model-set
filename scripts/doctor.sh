@@ -29,7 +29,10 @@ for bin in claude codex opencode agent-browser firecrawl jq node python3 ffmpeg;
     bad "$bin not on PATH"
   fi
 done
+WITH_SOGNI=true
+[ -f "$REPO_DIR/.env" ] && grep -q '^WITH_SOGNI=false' "$REPO_DIR/.env" && WITH_SOGNI=false
 for bin in sogni-agent obsidian ollama; do
+  [ "$bin" = sogni-agent ] && ! $WITH_SOGNI && continue   # opted out on this host
   command -v "$bin" >/dev/null && ok "$bin (optional)" || warn "$bin not installed (optional)"
 done
 
@@ -112,6 +115,7 @@ else
   bad ".env missing — copy .env.example"
 fi
 for var in CONTEXT7_API_KEY FIRECRAWL_API_KEY SOGNI_API_KEY; do
+  [ "$var" = SOGNI_API_KEY ] && ! $WITH_SOGNI && continue
   [ -n "${!var:-}" ] && ok "$var set" || warn "$var empty"
 done
 for var in OPENCODE_DISABLE_CLAUDE_CODE_SKILLS OPENCODE_DISABLE_EXTERNAL_SKILLS; do

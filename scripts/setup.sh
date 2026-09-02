@@ -29,6 +29,9 @@ WITH_OLLAMA=false
 WITH_OBSIDIAN=false
 WITH_SOGNI=true
 FORCE=false
+# Per-host defaults live in the gitignored .env (e.g. WITH_SOGNI=false on the
+# VPS, which never runs sogni). Command-line flags below still win.
+if [ -f "$ENV_FILE" ] && grep -q '^WITH_SOGNI=false' "$ENV_FILE"; then WITH_SOGNI=false; fi
 
 for arg in "$@"; do
   case "$arg" in

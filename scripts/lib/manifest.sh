@@ -18,6 +18,9 @@ CONFIG_MANIFEST=(
   "global/claude/settings.local.json::$HOME/.claude/settings.local.json"
   "global/claude/scripts/context-monitor.py::$HOME/.claude/scripts/context-monitor.py"
   "global/claude/agents/frontend-review.md::$HOME/.claude/agents/frontend-review.md"
+  "global/claude/agents/agent-design-review.md::$HOME/.claude/agents/agent-design-review.md"
+  "global/claude/agents/codebase-integrator.md::$HOME/.claude/agents/codebase-integrator.md"
+  "scripts/ai-update.sh::$HOME/.local/bin/ai-update"
 
   "global/codex/AGENTS.md::$HOME/.codex/AGENTS.md"
   "global/codex/config.toml::$HOME/.codex/config.toml"

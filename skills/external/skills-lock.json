@@ -12,6 +12,27 @@
       "sourceType": "github",
       "skillPath": "plugins/javascript-typescript/skills/nodejs-backend-patterns/SKILL.md",
       "computedHash": "b63b54d09c77cec0e84cdd42424c12909785f14bdb286c835c45420b885ff1f3"
+    },
+    "mapbox-data-visualization-patterns": {
+      "source": "mapbox/mapbox-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/mapbox-data-visualization-patterns/SKILL.md",
+      "sourceCommit": "209e8c408fd65edfff45e491c941e8a00025a1a6",
+      "computedHash": "9a34708ae015e599f7e02201f824d21a9b36bc7a90ee84c9b936860f55b19931"
+    },
+    "mapbox-web-performance-patterns": {
+      "source": "mapbox/mapbox-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/mapbox-web-performance-patterns/SKILL.md",
+      "sourceCommit": "209e8c408fd65edfff45e491c941e8a00025a1a6",
+      "computedHash": "b759d08632cf775afdedbdf85b6103dd2200ef94ad3500066ee72bb372d0f6af"
+    },
+    "mapbox-style-quality": {
+      "source": "mapbox/mapbox-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/mapbox-style-quality/SKILL.md",
+      "sourceCommit": "209e8c408fd65edfff45e491c941e8a00025a1a6",
+      "computedHash": "d72c58e34e6e56b6efca506e8eb66a93a22d6cd02008964d506e03fff8cab81b"
     }
   }
 }

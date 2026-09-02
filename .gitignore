@@ -26,3 +26,6 @@ __pycache__/
 
 # Agent file sync backups (auto-generated)
 agent_file_backups/
+
+# Codex writes its own system skills here at runtime — machine state, not ours
+skills/.system/

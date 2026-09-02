@@ -116,6 +116,5 @@
   },
   "effortLevel": "high",
   "tui": "fullscreen",
-  "theme": "dark-ansi",
-  "model": "claude-fable-5-1[1m]"
+  "theme": "dark-ansi"
 }

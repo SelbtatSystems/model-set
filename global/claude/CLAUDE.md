@@ -11,7 +11,7 @@
 **Change Summary** — after a nontrivial modification (new behavior, refactor, multi-file change — not typo/rename/formatting):
 "**Changes**: [file]: [what+why]
 **Untouched**: [file]: [why left alone]
-**Concerns**: [risks to verify]
+**Concerns**: [only real concerns, no already resoved concerns or guesses, if there are no concerns, say so]
 **Removed Dead Code**: [list]"
 
 ## Tools

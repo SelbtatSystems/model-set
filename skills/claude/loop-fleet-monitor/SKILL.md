@@ -255,21 +255,24 @@ holds with `git worktree list`.
 
 Then give Sven the command, with the tracker spelled out:
 
+**Always hand him `CYCLE_MINUTES=30`.** 30 minutes is the standing cycle length for every
+loop. Use a different value only if Sven asks for one in that message.
+
 ```bash
 # issue loop
 cd /home/sven/Projects/agcore-wt4
-MAIN_MODEL=opus PR_MODEL=opus CYCLE_MINUTES=90 \
+MAIN_MODEL=opus PR_MODEL=opus CYCLE_MINUTES=30 \
   ~/.claude/skills/issue-loop/scripts/issue-loop.sh \
   memory/AgCore/planning/issues/<feature-slug>
 
 # docs loop
 cd /home/sven/Projects/agcore-wt1
-CYCLE_MINUTES=90 DOCS_MODEL=gpt-5.6-terra DOCS_EFFORT=high \
+CYCLE_MINUTES=30 DOCS_MODEL=gpt-5.6-terra DOCS_EFFORT=high \
   ~/.codex/skills/docs-loop/scripts/docs-loop.sh
 
 # admin loop
 cd <worktree>
-CYCLE_MINUTES=90 ADMIN_MODEL=opus MERGE_MODEL=opus ./scripts/admin-loop.sh
+CYCLE_MINUTES=30 ADMIN_MODEL=opus MERGE_MODEL=opus ./scripts/admin-loop.sh
 ```
 
 On the VPS, same shape with `~/projects/git-worktrees/agcore/agcore-wt1-vps` and the skills at

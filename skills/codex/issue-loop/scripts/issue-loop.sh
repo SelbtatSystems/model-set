@@ -620,7 +620,7 @@ started test, CI job and delegated task before your final answer; report an actu
 you cannot complete it. Pick the ticket yourself: the lowest-numbered ready-for-agent ticket whose '**Blocked by:**' \
 entries are all done. If the ticket you would otherwise pick is blocked, do NOT stop — follow its \
 blocker chain and build the BLOCKING ticket instead (the deepest one that is itself unblocked and \
-ready-for-agent), so the chain clears from the bottom up. Build it end-to-end, opening a PR \
+ready-for-agent), so the chain clears from the bottom up. Build it end-to-end, opening a draft PR \
 against ${MAIN_BRANCH} when the local gate is green. Any new issue you need to file belongs in \
 that same folder. Only if EVERY ready-for-agent ticket is blocked by something unfinished: change \
 nothing and say so."

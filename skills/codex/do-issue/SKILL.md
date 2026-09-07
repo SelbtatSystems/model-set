@@ -108,18 +108,26 @@ If this ticket adds a DB migration, apply it to **the current worktree's own dat
 
 ✓ **Done when:** the branch contains `origin/main`, the gate is green, and every acceptance criterion was confirmed by a command you ran — in that order, on that base.
 
-### 6. Open the PR
+### 6. Open the draft PR
 
-Push the branch explicitly (it has no upstream after step 3's `--no-track`), then open the PR:
+Only after the full local CI gate in step 5 passes, push the branch explicitly
+(it has no upstream after step 3's `--no-track`) and open a draft PR:
 
 ```bash
 git push -u origin HEAD
-gh pr create --base main      # use --base <slice-branch> only for a stacked PR
+gh pr create --draft --base main   # use --base <slice-branch> only for a stacked PR
 ```
+
+Keep the PR in draft throughout review and fixes. The repository runs Static and
+Build on drafts and defers its full test/E2E jobs until the PR is ready. Wait for
+the checks that run on the draft; do not mark it ready to trigger the deferred
+jobs. `$do-pr` owns that transition after review and fixes, followed by full CI
+and merge. A draft does not replace the full local gate before PR creation.
 
 The body restates the slice, lists each acceptance criterion with its verified result, and references the ticket.
 
-✓ **Done when:** the PR exists and names the ticket.
+✓ **Done when:** local CI passed, the PR exists as a draft and names the ticket,
+and its applicable draft checks passed. Full remote CI belongs to `$do-pr`.
 
 ### 7. Close the loop in the tracker
 

@@ -29,6 +29,10 @@ The runner uses the current Codex login and unattended development permissions
 Normal Codex configuration, AGENTS.md, skills, MCP servers and exec rules stay
 loaded. Claude account variables do not select a Codex account.
 
+The handoff is **build → local CI → draft PR → review and fixes → mark ready →
+full CI → merge**. `$do-issue` completes the local gate and opens the draft;
+`$do-pr` completes review and fixes before marking it ready and waiting for full CI.
+
 ## One cycle
 
 1. Fast-forward the worktree base branch to `origin/main`, then check the migration

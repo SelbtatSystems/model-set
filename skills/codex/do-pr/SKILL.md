@@ -220,13 +220,23 @@ demands, with no runtime errors.
 
 ## Step 8 — CI and merge
 
-1. Wait for CI to complete: `gh pr checks <#> --watch`. Bound it with a timeout.
-2. Never merge on pending checks.
-3. If CI does not go green within the timeout: autonomous → emit
-   `<<<MERGE_BLOCKED #N ci-timeout>>>` and stop.
-4. If the branch is behind base, **merge base into the branch**. Do not rebase —
-   the force-push a rebase needs is hook-blocked, and it corrupts migrations and
-   shared files.
+1. Keep a draft PR in draft until all review, security, local-check and runtime
+   gates pass and their fixes are committed and pushed. If the branch is behind
+   base, **merge base into the branch**, then repeat the affected review and
+   local gates before proceeding. Never rebase a pushed branch.
+2. Mark it ready only now: `gh pr ready <#>`. If it is already ready, preserve
+   that state. The repository's `ready_for_review` event starts the full CI jobs
+   that were deferred while the PR was a draft.
+3. Wait for the full CI run on the current PR head:
+   `gh pr checks <#> --watch --interval 30`. Confirm that the post-ready run has
+   started; a previous green draft run with skipped test jobs is not full CI.
+   Require every applicable test/E2E job to run and pass. Jobs excluded because
+   their workspace is unaffected may remain skipped.
+4. A shell-call timeout is not a CI result. Repeat the watch within this turn;
+   allow about 40 minutes before autonomous mode emits
+   `<<<MERGE_BLOCKED #N ci-timeout>>>`. Never merge on pending checks. If new
+   fixes or another base merge change HEAD, repeat affected gates and wait for
+   CI on the new head before merging.
 5. State the merge decision plainly, covering all seven:
    - requirement met
    - diff scoped

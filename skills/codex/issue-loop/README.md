@@ -53,6 +53,10 @@ accounts. The runner uses `--sandbox danger-full-access -c approval_policy=never
 for the existing unattended Docker/vault workflow. It keeps normal user/project
 configuration, tools and exec rules loaded.
 
+The handoff is **build → local CI → draft PR → review and fixes → mark ready →
+full CI → merge**. `$do-issue` completes the local gate and opens the draft;
+`$do-pr` completes review and fixes before marking it ready and waiting for full CI.
+
 ## Cycle and git workflow
 
 1. Fast-forward the base branch to `origin/main`. Dirty or diverged work stops

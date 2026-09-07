@@ -55,6 +55,10 @@ The phase prompts use literal `$triage`, `$do-issue`, and `$do-pr auto #N`.
 findings and continues through the existing tests, runtime and CI gates. A
 security report is an intermediate result, not completion of the merge workflow.
 A failed, missing or blocked security report does not count as a clean review.
+The Codex handoff is build → local CI → draft PR → review and fixes → mark ready
+→ full CI → merge. `$do-issue` leaves the PR in draft after its local gate;
+`$do-pr` marks it ready after fixes. Skipped tests on a draft are expected, but
+must run and pass when applicable after the ready transition before merge.
 
 **Logs:** `issue-loop-logs/<phase>-*.log` holds Codex JSONL and stderr. Its
 `<phase>-*.log.final.txt` companion contains the final answer. Read that companion

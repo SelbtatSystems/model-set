@@ -1,6 +1,6 @@
 ---
 name: do-pr
-description: Merge a pull request without shipping a regression. Risk-tier the change, run layered review (codex review → security checklist → runtime verify), patch every correctness and high/critical security finding, gate on green build + tests + CI, then merge. Runs interactively or in an autonomous merge loop. Use when the user wants to merge a PR, asks whether a PR is safe or ready to merge, or wants a senior-style pre-merge check of the current branch or a GitHub PR by number.
+description: Merge a pull request without shipping a regression. Risk-tier the change, run layered review (codex review → $security-review → runtime verify), patch every correctness and high/critical security finding, gate on green build + tests + CI, then merge. Runs interactively or in an autonomous merge loop. Use when the user wants to merge a PR, asks whether a PR is safe or ready to merge, or wants a senior-style pre-merge check of the current branch or a GitHub PR by number.
 ---
 
 # Do PR
@@ -120,38 +120,61 @@ dismissed in writing.
 
 ## Step 4 — Security gate (blocking)
 
-There is no automated security review on this host. Walk the checklist yourself.
-See `## Degraded vs Claude` at the end of this file for what that costs you.
+Run `$security-review` in a **separate, read-only Codex session**. The reviewer
+collects the diff, learns the repository's security patterns, traces candidates,
+and filters false positives using that skill's exclusions and confidence cutoff.
+Do not substitute a checklist or your earlier code-review conclusions.
 
-1. Read the full diff once, looking only for security defects. Check each:
-   - Authentication or authorisation removed, weakened or bypassed
-   - Tenant or org scoping missing from a query, so one tenant can read another's rows
-   - User input reaching SQL, a shell, a file path or a template unsanitised
-   - Secrets, tokens or keys added to code, config, logs or error messages
-   - A new endpoint without an auth guard
-   - Permission checks done in the frontend only
-   - PII (TFN, passport, bank details) logged, returned in an API response, or stored unencrypted
-   - File upload without type, size or path validation
-   - A dependency bump that pulls in a known-vulnerable version
-2. If the tier is High, also run the matching hand-checks in
-   [`references/risk-playbooks.md`](references/risk-playbooks.md).
-3. Sort every finding into high/critical or medium/low.
-4. For each **high or critical** finding:
+1. Finish and commit intended correctness patches from Step 3 first: the security
+   skill reviews committed changes only. Resolve the PR's base branch, update its
+   remote-tracking ref in this parent session, and capture the base commit SHA and
+   `HEAD` SHA. Do not change either revision while the reviewer runs.
+2. Start a fresh `codex exec --sandbox read-only -c 'approval_policy="never"'`
+   from the checked-out PR repository. Pass `$security-review` literally, the
+   resolved base SHA, expected HEAD SHA, and the installed skill path
+   `${CODEX_HOME:-$HOME/.codex}/skills/security-review/SKILL.md` in its prompt.
+   In shell, use single quotes for the literal `'$security-review'` so `$security`
+   is not expanded. Use `--output-last-message` with a fresh temporary report
+   path outside the repository. If `PR_MODEL` or `PR_EFFORT` is set by the loop,
+   pass it through `--model` or `-c model_reasoning_effort=...`, respectively;
+   otherwise retain the user's Codex configuration.
+3. Wait within this turn for the process to finish, then read its **final report**.
+   Do not treat progress events as a verdict. A nonzero exit, missing/empty final
+   report, a `Security review blocked:` report, unresolved base, failed diff,
+   revision mismatch, or a reviewer that cannot start is a failed security gate.
+   A blocked report can arrive with exit code 0; inspect the report itself.
+   Accept only the skill's finding report, exact clean result, or verified
+   empty-diff result as a completed review. Retry a transient failure; if it
+   persists, interactive → surface it, autonomous → emit
+   `<<<MERGE_BLOCKED #N security-review-failed>>>` and stop. Never interpret a
+   tool failure as zero findings. Accept an empty-diff result only after
+   independently confirming the captured base-to-HEAD diff is empty.
+4. If the tier is High, also run the matching hand-checks in
+   [`references/risk-playbooks.md`](references/risk-playbooks.md) in the parent
+   session. Builds, tests, patches, and findings-log writes belong to the parent,
+   never the read-only reviewer.
+5. Sort every finding into high/critical or medium/low. For each **high or
+   critical** finding:
    a. Patch it on the PR branch yourself.
-   b. Push, so CI re-validates.
-   c. Re-read the changed area to confirm the fix holds.
-   d. Repeat until none remain.
-5. If you cannot safely patch one — it is ambiguous or too large — then:
+   b. Commit and push, so CI re-validates.
+   c. Repeat the independent `$security-review` against the updated HEAD and
+      confirm the fix holds. Repeat until none remain.
+6. If you cannot safely patch one — it is ambiguous or too large — then:
    interactive → surface it. Autonomous → emit
    `<<<MERGE_BLOCKED #N security:<finding>>>` and stop.
-6. For each **medium or low** finding: append it to the owning context's
+7. For each **medium or low** finding: append it to the owning context's
    `SECURITY-findings.md` — the append-only log beside its `SECURITY.md`,
-   never `SECURITY.md` itself — as a deferred finding. Format and file resolution are in
-   [`references/risk-playbooks.md`](references/risk-playbooks.md). These do not
-   block the merge.
+   never `SECURITY.md` itself — as a deferred finding. Format and file resolution
+   are in [`references/risk-playbooks.md`](references/risk-playbooks.md). These
+   do not block the merge. The security skill reports only HIGH and MEDIUM;
+   do not ask it to add excluded LOW findings. Retain this deferral rule for
+   findings from the other review layers.
+8. If later fixes or a base merge change the reviewed code, repeat this gate on
+   the new revisions before merging.
 
-**Do not continue until:** zero unresolved high or critical findings, and every
-medium or low finding is recorded in the owning `SECURITY-findings.md`.
+**Do not continue until:** the separate review has completed successfully, zero
+unresolved high or critical findings remain, and every medium or low finding is
+recorded in the owning `SECURITY-findings.md`.
 
 ## Step 5 — Static checks
 
@@ -242,29 +265,3 @@ Alongside the standard change summary, report exactly three things:
 2. The security-gate result — which high/critical findings you patched, and
    where medium/low were deferred.
 3. The merge outcome.
-
-## Degraded vs Claude
-
-**What Claude does that this cannot.** Claude's `do-pr` delegates each
-report-producing layer to a parallel sub-agent with a named type, and runs
-`/security-review` — a dedicated, purpose-built security pass — as its own
-layer. It also has `/code-review` at selectable effort levels and `/verify` as
-a first-class runtime-verification skill.
-
-**Why this host cannot.** Codex has no equivalent of `/security-review`,
-`/code-review` or `/verify`, and this skill runs sequentially in one context
-rather than fanning out. `codex review` covers the code-review layer only.
-
-**What you must do to compensate.**
-
-1. Step 4 replaces a real security review with a checklist you walk yourself.
-   **Do not treat a clean pass here as a security review.** It is a smoke test.
-2. On any High-tier PR — auth, multi-tenant, payments, PII, legal documents,
-   file upload — read `references/risk-playbooks.md` in full and run every
-   hand-check it lists. On Claude that is belt-and-braces. Here it is your only
-   real coverage.
-3. Because everything runs in one context, you accumulate context across all
-   nine steps. If the diff is large, re-read the diff before Step 4 rather than
-   relying on what you remember from Step 2.
-4. If the PR touches money, credentials or personal data and you have any doubt,
-   block it and ask a human. A missed finding here is not caught later.

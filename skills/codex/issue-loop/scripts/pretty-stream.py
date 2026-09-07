@@ -120,6 +120,9 @@ def handle_codex(event):
 
 def handle(event):
     kind = event.get("type", "")
+    if kind == "error":
+        emit("ERROR", "31", flat(event.get("message", event), 200))
+        return
     if kind.startswith(("thread.", "turn.", "item.")):
         handle_codex(event)
         return

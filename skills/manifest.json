@@ -63,8 +63,8 @@
       "hosts": [
         "codex"
       ],
-      "degraded": true,
-      "why": "Uses the Codex-native stack (codex review, ~/.codex/agents/, ~/.codex/prompts/). OpenCode has none of these, so it is never linked there."
+      "degraded": false,
+      "why": "Uses codex review and a separate read-only codex exec for the installed security-review skill. Remains Codex-only; the security gate no longer uses a degraded checklist."
     },
     "shared/find-skills": {
       "hosts": [

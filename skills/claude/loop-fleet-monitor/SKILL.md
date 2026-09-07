@@ -14,6 +14,76 @@ under *What you may change*.
 
 ---
 
+## Codex issue-loop support (addition)
+
+The issue loop also has a Codex runner:
+`~/.codex/skills/issue-loop/scripts/issue-loop.sh`. For this runner, use the
+instructions in this section; the Claude-specific examples below still apply to
+Claude runners. Read the installed Codex issue-loop `SKILL.md` and `README.md`
+for its current operator contract. The tracker, git lifecycle, Docker gates,
+PR ledger, parked PRs, retry limits, QA follow-ups and stop files are shared in
+shape; the agent process and output format differ.
+
+**Discover the runtime before restarting.** Inspect the parent runner's command
+path and its child process: Codex phases run `codex exec`, Claude phases run
+`claude`. The runner prints its runtime and model/effort settings at startup.
+Read only `MAIN_MODEL`, `MAIN_EFFORT`, `PR_MODEL`, `PR_EFFORT`, `CYCLE_MINUTES`,
+`BASE_BRANCH`, `LOG_DIR` and `STOP_FILE` if recovering settings from a process;
+never dump its whole environment, which can contain credentials. Preserve the
+chosen runtime, tracker and phase settings. A Codex session ID is in the raw
+`thread.started` event; session files remain available in the normal Codex home.
+
+After the existing restart checks, the Codex command is:
+
+```bash
+cd /home/sven/Projects/agcore-wt2
+MAIN_MODEL=gpt-6-astra MAIN_EFFORT=high \
+PR_MODEL=gpt-6-astra PR_EFFORT=high CYCLE_MINUTES=30 \
+  ~/.codex/skills/issue-loop/scripts/issue-loop.sh \
+  memory/AgCore/planning/issues/<feature-slug>
+```
+
+These model values are an example, not a restart override. Each unset model or
+effort inherits the current Codex configuration. `MAIN_*` controls build/triage;
+`PR_*` controls merge and its independent security reviewer. The current Codex
+login is used. Claude account knobs do not select a Codex account. Verify
+`codex login status`; never read or copy authentication files. The runner retains
+the environment's unattended Docker/vault access and normal Codex tools/rules.
+
+The phase prompts use literal `$triage`, `$do-issue`, and `$do-pr auto #N`.
+`$do-pr` waits for a separate read-only `$security-review`, then fixes blocking
+findings and continues through the existing tests, runtime and CI gates. A
+security report is an intermediate result, not completion of the merge workflow.
+A failed, missing or blocked security report does not count as a clean review.
+
+**Logs:** `issue-loop-logs/<phase>-*.log` holds Codex JSONL and stderr. Its
+`<phase>-*.log.final.txt` companion contains the final answer. Read that companion
+for completion markers; keep using GitHub to confirm merge state. Codex events
+include `thread.started`, `item.*`, `turn.completed`, `turn.failed` and `error`.
+There is no Claude `result` event or Claude cost field. Absence of `result` is
+normal for Codex, not evidence of a killed process. A missing final answer needs
+process, error-event and exit-status inspection before attributing a cause.
+
+**Scheduling:** after sync/migration and merging its recorded PRs, the runner
+builds ready tickets first. Triage runs only when the ready queue is empty.
+Pending PRs prevent starting another build; parked PRs leave the pending queue.
+It keeps its existing no-work marker, measured progress, final PR sweep and
+`NEEDS-HUMAN.md` behavior. Use the same 30-minute cycle on restart.
+
+**Database recovery for Codex:** use `npm run db:status` / `npm run db:check` and
+the repository's ledger procedure (`npm run db:migrate`). Do not use the direct
+`psql -f` example below for this runner. The current runner excludes function
+bodies when classifying executable SQL, and traces expected orphaned migrations
+to its own pending PR branches. Unknown orphans, a missing baseline or destructive
+pending SQL still need the documented human decision.
+
+One loop per worktree and one per tracker still applies across runtimes. Never
+start the Codex runner beside a Claude runner in the same worktree. Keep existing
+pending and parked state when switching runtimes. On the VPS, verify that the
+Codex CLI and this Codex skill are actually installed before giving that command.
+
+---
+
 ## The fleet
 
 | Where | Worktree | Runs |

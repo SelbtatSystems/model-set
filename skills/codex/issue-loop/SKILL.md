@@ -1,65 +1,64 @@
 ---
 name: issue-loop
-description: Ralph loop that drives one tracker folder to done — triage needs-triage tickets, build every ready-for-agent ticket via do-issue, merge each resulting PR via do-pr, and surface ready-for-human tickets in NEEDS-HUMAN.md. Use when the user wants a folder of issues worked autonomously ("run the issue loop on <folder>").
-disable-model-invocation: true
+description: Run the existing triage, do-issue and do-pr workflows over one tracker folder until no agent-workable tickets remain.
 ---
 
-# Issue Loop
+# Issue loop
 
-A runner script, not an agent playbook: `scripts/issue-loop.sh` orchestrates the existing
-`triage`, `do-issue`, and `do-pr` skills over **one tracker folder** until nothing in it is left
-for an agent. Start it from the repo root of the worktree that should do the work:
+`scripts/issue-loop.sh` is the runner. Each phase starts a fresh `codex exec`
+session and invokes `$triage`, `$do-issue`, or `$do-pr auto`. Use the existing
+repository instructions and those skills for their development and git workflows.
+
+Start from the worktree that will do the work:
 
 ```bash
-~/.codex/skills/issue-loop/scripts/issue-loop.sh memory/AgCore/planning/issues/<feature-slug>
+MAIN_MODEL=gpt-6-astra MAIN_EFFORT=high \
+PR_MODEL=gpt-6-astra PR_EFFORT=high CYCLE_MINUTES=30 \
+  ~/.codex/skills/issue-loop/scripts/issue-loop.sh \
+  memory/AgCore/planning/issues/<feature-slug>
 ```
 
-## Model knobs (per loop instance, nothing global)
+The example selects Astra/high for both phases. `MAIN_MODEL` / `MAIN_EFFORT`
+control build and triage; `PR_MODEL` / `PR_EFFORT` control merge. An empty or unset
+value inherits the current Codex configuration. Model availability and supported
+efforts depend on the installed CLI and account; an invalid choice is an error,
+never a silent model fallback. No global settings or login files are changed.
 
-| Env | Default | Meaning |
-|---|---|---|
-| `MAIN_MODEL` | `fable` | build agent (`do-issue`) and triage agent |
-| `PR_MODEL` | `opus` | merge agent (`do-pr`) |
-| `MAIN_CONFIG_DIR` / `PR_CONFIG_DIR` | *(terminal default)* | `CLAUDE_CONFIG_DIR` per phase, e.g. `$HOME/.claude-max-2` |
-| `CYCLE_MINUTES` | `10` | wait between cycles |
+The runner uses the current Codex login and unattended development permissions
+(full filesystem access for Docker and the external vault, no approval prompts).
+Normal Codex configuration, AGENTS.md, skills, MCP servers and exec rules stay
+loaded. Claude account variables do not select a Codex account.
 
-`MAIN_MODEL=opus` runs Opus for build and merge; the default pair is Fable build + Opus merge.
+## One cycle
 
-## What one cycle does
+1. Fast-forward the worktree base branch to `origin/main`, then check the migration
+   ledger. Apply eligible pending migrations only through `npm run db:migrate`.
+   Preserve the existing destructive-SQL, baseline and owned-orphan checks.
+2. Run `$do-pr auto` for open PRs in this loop's pending-branch ledger. Park a PR
+   blocked at a review gate and keep working on other tickets. A remaining queued
+   PR prevents starting another build.
+3. Build ready tickets first. Only when no `ready-for-agent` tickets remain,
+   run `$triage` over this folder's `needs-triage` tickets.
+4. `$do-issue` builds one eligible ticket, following satisfied blockers within
+   this folder, verifies it, opens a PR, and updates the tracker.
+5. Refresh `NEEDS-HUMAN.md`, wait `CYCLE_MINUTES` (default 30), and repeat.
 
-1. Resolve the worktree root, sync its branch ff-only to origin/main, then run the repository's
-   migration-ledger check. Ledger-pending migrations are safety-scanned and non-destructive ones
-   are applied through `npm run db:migrate`; destructive SQL, a missing one-time baseline, or a
-   failed ledger check stops for a human. The loop never executes SQL files directly and ignores
-   inert `db/migrations/pre-launch/` history.
-2. Merge any open PR this loop previously created (`do-pr auto`, tracked by branch in a state
-   file — other pipelines' PRs are never touched).
-3. Count the folder's `**Triage:**` lines:
-   - `needs-triage` present → run the `triage` skill over the folder (requirements met →
-     `ready-for-agent`; not met → `ready-for-human` / `needs-info` with a reason).
-   - `ready-for-agent` present → `do-issue` builds the lowest-numbered ticket whose blockers are
-     satisfied, from this folder only, and opens a PR.
-   - neither → drain remaining PRs and stop: **all-done** (exit 0), or **NEEDS HUMAN** (exit 2)
-     when `ready-for-human`/`needs-info` tickets remain.
+The shell measures progress from ticket state and recorded branches. GitHub
+confirms merges. Completion markers are read only from each session's final
+answer, never its intermediate narration. Existing no-work markers, retry limits,
+final PR sweep, and exit codes remain the runner's stop contract.
 
-   Progress is *measured* (a new PR branch, or a ticket leaving `ready-for-agent`), not taken on
-   the agent's word — so a refusal ("every remaining ticket is blocked") counts as a stalled cycle
-   and stops the loop after `MAX_FAILS` rather than spinning.
-4. Every cycle rewrites `<folder>/NEEDS-HUMAN.md` — the standing list of tickets waiting on a
-   person (deleted when empty).
+## QA and handoff
 
-## The QA slice closes the folder
+The final QA ticket reviews the whole implementation. Its follow-up tickets stay
+in this folder and are picked up by later cycles. The implementation report and
+product decisions remain human-owned and appear in `NEEDS-HUMAN.md`.
 
-`to-issues` publishes every set with a final **QA — full implementation review** ticket, blocked by
-all the others, so it runs last. It drives the finished feature in the browser, checks every
-acceptance criterion of every ticket in the folder, patches small defects in place, and files what
-it can't fix as **new issues in the same folder** — `ready-for-agent` for agent-buildable work,
-`ready-for-human` for product/design calls — plus the **implementation report** as a
-`ready-for-human` issue.
+The loop drains its remaining PRs before finishing: exit 0 when all work is done;
+exit 2 when human-owned tickets or parked PRs remain. Other stop banners identify
+migration, git, or repeated phase failures. See [README.md](README.md) for the full
+operator reference, logs, locks, and restart commands.
 
-The loop needs no special handling for any of that: those follow-ups are just more tickets in the
-folder, so it keeps cycling (triage → build → merge) until no `ready-for-agent` ticket is left,
-then stops — leaving the report and any open decisions listed in `NEEDS-HUMAN.md`.
-
-Run one loop per worktree (each has its own Docker stack + DB). Safe next to the docs loop:
-this loop merges only branches it recorded; the docs loop merges only `documentation/*`.
+Run one loop per worktree and one per tracker. The worktree has its own Docker
+stack and DB. Keep the current PR ledger when restarting. The docs loop owns its
+own branches; this runner does not take them.

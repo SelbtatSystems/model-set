@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────
 # issue loop (ralph loop over ONE tracker folder):
-#   each cycle: ff worktree to main → MERGE this loop's open PR → TRIAGE needs-triage →
-#   BUILD next ready-for-agent ticket (do-issue) → wait
-# all agents are claude; models are per-phase knobs (MAIN_MODEL builds, PR_MODEL merges).
+#   each cycle: ff worktree to main → MERGE this loop's open PR →
+#   TRIAGE only if ready queue empty → BUILD next ready-for-agent ticket → wait
+# Each phase starts a fresh Codex session; model and effort are per-phase overrides.
 # only branches this loop created are merged — parallel pipelines' PRs are never touched.
 # stops on: folder finished (all done, or only human-owned tickets left → NEEDS-HUMAN.md),
-#           a blocked PR, an unexpected state, touch .issue-loop-stop, Ctrl-C.
+#           an unexpected state, touch .issue-loop-stop, Ctrl-C. Blocked PRs are parked.
 # usage: ~/.codex/skills/issue-loop/scripts/issue-loop.sh <tracker-folder>
 # ──────────────────────────────────────────────────────────────
 set -uo pipefail   # NOT -e: the loop decides what is fatal, line by line
@@ -30,12 +30,10 @@ LOG_DIR="${LOG_DIR:-./issue-loop-logs}"
 STOP_FILE="${STOP_FILE:-.issue-loop-stop}"  # touch it to stop THIS loop only
 MAX_FAILS="${MAX_FAILS:-3}"               # consecutive failed cycles → stop
 AUTO_MIGRATE="${AUTO_MIGRATE:-1}"         # 1 = apply ledger-pending migrations; 0 = always stop for a human
-MAIN_MODEL="${MAIN_MODEL:-fable}"         # build + triage agent model
-PR_MODEL="${PR_MODEL:-opus}"              # merge agent model
-# Both phases run on the second Claude account by default; pass an empty value to use the
-# terminal's own account instead, e.g. MAIN_CONFIG_DIR= PR_CONFIG_DIR= issue-loop.sh <folder>
-MAIN_CONFIG_DIR="${MAIN_CONFIG_DIR-$HOME/.claude-max-2}"  # CLAUDE_CONFIG_DIR for build/triage
-PR_CONFIG_DIR="${PR_CONFIG_DIR-$HOME/.claude-max-2}"      # CLAUDE_CONFIG_DIR for merge
+MAIN_MODEL="${MAIN_MODEL:-}"             # empty = current Codex configuration
+MAIN_EFFORT="${MAIN_EFFORT:-}"           # build + triage reasoning effort
+PR_MODEL="${PR_MODEL:-}"                 # empty = current Codex configuration
+PR_EFFORT="${PR_EFFORT:-}"               # merge reasoning effort
 STATE_FILE="$LOG_DIR/pending-branches"    # branches this loop built, awaiting merge
 PARKED_FILE="$LOG_DIR/parked-prs"         # PRs blocked at a gate: surfaced, not retried
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -93,40 +91,24 @@ render() {
   fi
 }
 
-# The agent's FINAL message, extracted from the stream-json log. Sentinels are matched against
-# THIS, never the raw stream: an agent that merely *narrates* the contract mid-run ("...else
-# report <<<MERGE_BLOCKED #N reason>>>") would otherwise read as having emitted it. That false
-# positive parked a healthy PR and stopped the docs loop on 2026-08-03. Empty output (no result
-# line, no python3) means the caller falls back to the whole log — the old, lossy behaviour.
-final_message() {  # final_message <stream-json-logfile>
-  command -v python3 >/dev/null 2>&1 || { cat "$1"; return; }
-  python3 - "$1" <<'PY' 2>/dev/null
-import json, sys
-out = ""
-for line in open(sys.argv[1], errors="replace"):
-    try:
-        d = json.loads(line)
-    except Exception:
-        continue
-    if d.get("type") == "result" and isinstance(d.get("result"), str):
-        out = d["result"]
-print(out)
-PY
+# Completion markers belong only to Codex's final answer, never progress/tool output.
+# Missing output remains inconclusive; it is not evidence of success or a blocked PR.
+final_message() {  # final_message <jsonl-logfile>
+  [ -f "$1.final.txt" ] && cat "$1.final.txt"
 }
 
-# claude spawn with per-phase model + optional per-phase account.
-# stream-json gives structured events to render; --verbose is required for it under --print.
-run_claude() {  # run_claude <model> <config-dir-or-empty> <logfile> <prompt>
-  local model="$1" cfg="$2" logfile="$3" prompt="$4"
-  if [ -n "$cfg" ]; then
-    CLAUDE_CONFIG_DIR="$cfg" claude --model "$model" --permission-mode bypassPermissions \
-      --output-format stream-json --verbose \
-      --print "$prompt" </dev/null 2>&1 | tee "$logfile" | render
-  else
-    claude --model "$model" --permission-mode bypassPermissions \
-      --output-format stream-json --verbose \
-      --print "$prompt" </dev/null 2>&1 | tee "$logfile" | render
-  fi
+run_codex() {  # run_codex <model-or-empty> <effort-or-empty> <logfile> <prompt>
+  local model="$1" effort="$2" logfile="$3" prompt="$4"
+  local model_args=()
+  [ -n "$model" ] && model_args+=(--model "$model")
+  [ -n "$effort" ] && model_args+=(-c "model_reasoning_effort=$effort")
+  # A reused log name must not leave a previous run's verdict after a startup failure.
+  rm -f "$logfile.final.txt"
+  # Docker and the external vault need the existing unattended development permissions.
+  # Keep normal Codex config, login, AGENTS.md, skills, MCP and exec rules loaded.
+  codex exec --json --sandbox danger-full-access -c approval_policy=never \
+    "${model_args[@]}" --cd "$REPO_ROOT" --output-last-message "$logfile.final.txt" \
+    "$prompt" </dev/null 2>&1 | tee "$logfile" | render
   return "${PIPESTATUS[0]}"
 }
 
@@ -230,7 +212,8 @@ preflight() {
   [ "$BASE_BRANCH" = "$MAIN_BRANCH" ] \
     && warn "BASE_BRANCH == ${MAIN_BRANCH}: running on main itself (OK only in the worktree that owns main)."
   command -v gh     >/dev/null 2>&1 || { err "gh not on PATH";     return 1; }
-  command -v claude >/dev/null 2>&1 || { err "claude not on PATH"; return 1; }
+  command -v codex  >/dev/null 2>&1 || { err "codex not on PATH"; return 1; }
+  codex login status >/dev/null 2>&1 || { err "Codex not authenticated (run: codex login)"; return 1; }
   gh auth status >/dev/null 2>&1 || { err "gh not authenticated (run: gh auth login)"; return 1; }
   ok "Pre-flight passed."
 }
@@ -502,27 +485,26 @@ drain_pending() {
       continue
     fi
     local logfile="$LOG_DIR/merge-$(date +%Y%m%d-%H%M%S).log"
-    # Attempt count per PR. A first attempt runs the full workflow; a retry means a previous
-    # agent already reviewed this PR and stopped without merging (its usual failure is treating
-    # /security-review's report as the deliverable). Re-running the whole review costs $1.50-$3
-    # and re-derives what is already on record, so the retry prompt says so explicitly.
+    # Retry the same PR, reusing only review evidence that still covers its current head.
+    # A previous process may have stopped before completing any review gate.
     local attempts_file="$LOG_DIR/merge-attempts-${pr}"
     local attempt=$(( $(cat "$attempts_file" 2>/dev/null || echo 0) + 1 ))
     printf '%s\n' "$attempt" > "$attempts_file"
 
-    local prompt="/do-pr auto #${pr}"
+    local prompt="\$do-pr auto #${pr}"
     if [ "$attempt" -gt 1 ]; then
-      prompt="/do-pr auto #${pr} — RETRY (attempt ${attempt}). A previous run already reviewed \
-this PR and ended without merging it and without a sentinel; its review found nothing blocking. \
-Do NOT repeat the full review. Confirm the state yourself (gh pr view / gh pr checks --watch), \
-and if every check is green and the PR is mergeable, merge it and emit the sentinel. If you find \
+      prompt="\$do-pr auto #${pr} — RETRY (attempt ${attempt}). A previous run attempted \
+this PR and ended without merging it and without a sentinel. Read the existing review evidence \
+and compare it with the current PR head. Reuse completed checks only when they still cover this \
+head; complete missing or invalidated do-pr gates. Confirm gh pr view and gh pr checks --watch \
+--interval 30; merge only when every do-pr gate passes and emit the sentinel. If you find \
 a real blocker, comment it on the PR and emit <<<MERGE_BLOCKED #${pr} reason>>>. End with exactly \
 one sentinel — a summary without one is a failed run."
-      warn "retrying #${pr} (attempt ${attempt}) — skipping the full re-review"
+      warn "retrying #${pr} (attempt ${attempt}) — checking prior review evidence"
     fi
-    step "Launching claude (${PR_MODEL}) → /do-pr auto #${pr} (branch ${branch}, attempt ${attempt}) …"
+    step "Launching codex (${PR_MODEL:-configured model}, ${PR_EFFORT:-configured effort}) → \$do-pr auto #${pr} (branch ${branch}, attempt ${attempt}) …"
     log "streaming below + → ${D}$logfile${R}"
-    run_claude "$PR_MODEL" "$PR_CONFIG_DIR" "$logfile" "$prompt"
+    run_codex "$PR_MODEL" "$PR_EFFORT" "$logfile" "$prompt"
     local rc=$?
     # Ground truth first: GitHub cannot lie about whether the PR merged; sentinels are only
     # consulted for the not-merged outcomes (models decorate or omit them).
@@ -557,10 +539,12 @@ one sentinel — a summary without one is a failed run."
 # ---- triage phase -----------------------------------------------------------
 run_triage() {
   local logfile="$LOG_DIR/triage-$(date +%Y%m%d-%H%M%S).log"
-  step "Launching claude (${MAIN_MODEL}) → /triage over ${TRACKER_DIR} …"
+  step "Launching codex (${MAIN_MODEL:-configured model}, ${MAIN_EFFORT:-configured effort}) → \$triage over ${TRACKER_DIR} …"
   log "streaming below + → ${D}$logfile${R}"
-  run_claude "$MAIN_MODEL" "$MAIN_CONFIG_DIR" "$logfile" \
-    "/triage Triage every needs-triage ticket in ${TRACKER_DIR} — that folder only. \
+  run_codex "$MAIN_MODEL" "$MAIN_EFFORT" "$logfile" \
+    "\$triage Triage every needs-triage ticket in ${TRACKER_DIR} — that folder only. \
+Read AGENTS.md and use the installed Codex triage skill. This invocation authorizes the \
+existing autonomous triage workflow; no human is present. Complete the pass in this session. \
 Autonomous run, never prompt: when a ticket's requirements are met and it is buildable by an \
 agent, flip it to ready-for-agent; when they are not, set ready-for-human (or needs-info) and \
 append a one-line dated reason to the ticket's Comments. Change nothing outside that folder."
@@ -624,13 +608,16 @@ run_build() {
   # every concurrent loop in the repo. See the ownership fallback below.
   REFLOG=$(git rev-parse --git-path logs/HEAD)
   reflog_before=$(wc -l < "$REFLOG" 2>/dev/null || echo 0)
-  step "Launching claude (${MAIN_MODEL}) → /do-issue in ${TRACKER_DIR} …"
+  step "Launching codex (${MAIN_MODEL:-configured model}, ${MAIN_EFFORT:-configured effort}) → \$do-issue in ${TRACKER_DIR} …"
   log "streaming below + → ${D}$logfile${R}"
   # "lowest-numbered with satisfied blockers" keeps the QA slice (blocked by everything) last,
   # and lets follow-up issues filed by QA be picked up on later cycles.
-  run_claude "$MAIN_MODEL" "$MAIN_CONFIG_DIR" "$logfile" \
-    "/do-issue Work ${TRACKER_DIR} — that folder ONLY, ignore every other tracker. \
-Pick the ticket yourself: the lowest-numbered ready-for-agent ticket whose '**Blocked by:**' \
+  run_codex "$MAIN_MODEL" "$MAIN_EFFORT" "$logfile" \
+    "\$do-issue Work ${TRACKER_DIR} — that folder ONLY, ignore every other tracker. \
+Read AGENTS.md and follow the installed Codex do-issue skill through verification, PR creation, \
+and tracker update. This invocation authorizes that existing autonomous workflow. Wait for every \
+started test, CI job and delegated task before your final answer; report an actual blocker when \
+you cannot complete it. Pick the ticket yourself: the lowest-numbered ready-for-agent ticket whose '**Blocked by:**' \
 entries are all done. If the ticket you would otherwise pick is blocked, do NOT stop — follow its \
 blocker chain and build the BLOCKING ticket instead (the deepest one that is itself unblocked and \
 ready-for-agent), so the chain clears from the bottom up. Build it end-to-end, opening a PR \
@@ -731,8 +718,8 @@ RUN_REFLOG_START=$(wc -l < "$(git rev-parse --git-path logs/HEAD)" 2>/dev/null |
 banner "ISSUE LOOP STARTING — ${TRACKER_DIR}"
 log "worktree: ${B}$(pwd)${R}"   # printed loudly: starting in the wrong worktree is easy to miss
 log "cycle=${CYCLE_MINUTES}m  base=${BASE_BRANCH}  main=${MAIN_BRANCH}"
-log "models: build/triage=${MAIN_MODEL}  merge=${PR_MODEL}"
-log "accounts: build/triage=${MAIN_CONFIG_DIR:-terminal default}  merge=${PR_CONFIG_DIR:-terminal default}"
+log "runtime: codex  login/config: current Codex environment"
+log "models: build/triage=${MAIN_MODEL:-configured default} (${MAIN_EFFORT:-configured effort})  merge=${PR_MODEL:-configured default} (${PR_EFFORT:-configured effort})"
 log "stop gracefully: ${B}touch ${STOP_FILE}${R}"
 
 while :; do

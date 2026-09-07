@@ -1,167 +1,148 @@
 # issue-loop — drive one tracker folder to done
 
-Point it at a folder of issues and it works them all: triages what needs triaging, builds every
-`ready-for-agent` ticket, merges each PR, follows up on whatever the closing QA ticket discovers,
-and stops when nothing is left for an agent — leaving an implementation report and any open
-decisions for you.
+The runner starts fresh Codex sessions for `$triage`, `$do-issue` and `$do-pr auto`.
+The existing skills own their git, implementation, verification and merge steps.
+The shell owns scheduling, PR ownership, progress checks and stopping.
 
-All agents are `claude`; you choose the models.
-
-## Run it
+## Start
 
 ```bash
-cd ~/Projects/agcore-wt2                                    # one loop per worktree
-~/.codex/skills/issue-loop/scripts/issue-loop.sh memory/AgCore/planning/issues/<feature-slug>
+cd ~/Projects/agcore-wt2
+MAIN_MODEL=gpt-6-astra MAIN_EFFORT=high \
+PR_MODEL=gpt-6-astra PR_EFFORT=high CYCLE_MINUTES=30 \
+  ~/.codex/skills/issue-loop/scripts/issue-loop.sh \
+  memory/AgCore/planning/issues/<feature-slug>
 ```
 
-Run it inside **herdr** (see `memory/_cheat-sheets/herdr.md`) — the loop dies with its terminal otherwise.
+Choose any model available to your Codex account and an effort that model and CLI
+support. The example selects Astra/high. Omit any model or effort override to use
+your current Codex configuration. No global configuration is changed. An invalid
+choice fails; it is never replaced with another model.
 
-Stop it gracefully from another terminal:
+Run in a persistent **herdr** terminal (`memory/_cheat-sheets/herdr.md`) so the loop
+survives closing the client. Use one loop per worktree and per tracker folder.
 
-```bash
-cd ~/Projects/agcore-wt2 && touch .issue-loop-stop
-```
+Before starting:
 
-It finishes the phase it is in (never mid-merge) and exits. Ctrl-C is a hard stop.
+- The worktree must be clean and on its own base branch that can fast-forward to
+  `origin/main`. Preserve unfinished feature work on its branch.
+- Its Docker stack must be running, with a separate DB volume.
+- `gh` and `codex` must be on PATH and authenticated (`codex login status`).
+- The tracker must contain Markdown tickets with `**Triage:**` lines.
 
-### Choosing models
+## Settings
 
-```bash
-# default: Fable builds + triages, Opus reviews and merges
-~/.codex/skills/issue-loop/scripts/issue-loop.sh <folder>
-
-# Opus everywhere
-MAIN_MODEL=opus ~/.codex/skills/issue-loop/scripts/issue-loop.sh <folder>
-
-# Fable builds, Sonnet merges, merge phase on the second account
-PR_MODEL=sonnet PR_CONFIG_DIR=~/.claude-max-2 \
-  ~/.codex/skills/issue-loop/scripts/issue-loop.sh <folder>
-```
-
-### Before the first run
-
-- Worktree on a **plain branch** (not a leftover feature branch with unmerged commits) and a
-  **clean** working tree — the loop fast-forwards to `origin/main` each cycle.
-- That worktree's **Docker stack up** and its **DB current** on `db/migrations/`.
-- `gh` authenticated and `claude` on PATH.
-- The folder must contain tickets with `**Triage:**` lines (the local markdown tracker format).
-
-## One cycle
-
-```
-1. SYNC     ff this worktree's branch to origin/main
-2. MERGE    for each PR this loop opened earlier → claude /do-pr auto #N
-3. TRIAGE   any needs-triage tickets in the folder → claude $triage
-4. BUILD    lowest-numbered ready-for-agent ticket whose blockers are satisfied → claude $do-issue
-5. WAIT     CYCLE_MINUTES, then repeat
-```
-
-The folder's own `**Triage:**` lines decide what happens — the script counts them itself, so no
-agent can misreport progress. It only merges PRs from branches **it recorded**
-(`issue-loop-logs/pending-branches`), so it never touches the docs loop's or your own PRs.
-
-### Triage behaviour
-
-`needs-triage` tickets get a triage pass first: requirements met and agent-buildable →
-`ready-for-agent` (built in the same cycle); not met → `ready-for-human` or `needs-info` with a
-dated one-line reason on the ticket.
-
-### The QA ticket closes the folder
-
-`to-issues` ends every published set with a **QA — full implementation review** ticket, blocked by
-all the others so it runs last. It drives the finished feature in the browser, checks every
-acceptance criterion of every ticket in the folder against the running app, patches small defects
-in place, and files what it cannot fix as **new tickets in the same folder** —
-`ready-for-agent` for agent-buildable work, `ready-for-human` for product/design calls — then
-writes the **implementation report** as a `ready-for-human` ticket.
-
-The loop needs no special handling for that: those follow-ups are just more tickets, so it keeps
-cycling until no `ready-for-agent` ticket remains.
-
-### How you find out what needs you
-
-`<folder>/NEEDS-HUMAN.md` — rewritten every cycle, in two sections: **PRs parked at a review gate**
-and **tickets waiting on a person** (`ready-for-human` / `needs-info`). Deleted automatically once
-nothing is waiting.
-
-### A blocked PR does not stop the loop
-
-When `/do-pr` blocks a PR at its review gate, the loop **parks** it rather than exiting: the branch is
-dropped from `pending-branches` so it stops being retried, the PR is listed in `NEEDS-HUMAN.md`, and
-the loop moves on to the next buildable ticket. Nothing is closed or discarded — the PR and its branch
-are left exactly as they are.
-
-To resume a parked PR after you have fixed or re-scoped it, put its branch back:
-
-```bash
-echo <branch> >> issue-loop-logs/pending-branches
-```
-
-The trade-off is deliberate: blocked work accumulates while you are away instead of halting the whole
-folder. `NEEDS-HUMAN.md` is the thing to read when you come back.
-
-## Knobs
-
-| Env | Default | Meaning |
+| Environment variable | Default | Meaning |
 |---|---|---|
-| `MAIN_MODEL` | `fable` | build + triage agent |
-| `PR_MODEL` | `opus` | merge agent |
-| `MAIN_CONFIG_DIR` / `PR_CONFIG_DIR` | `~/.claude-max-2` | Claude account per phase, e.g. `~/.claude-max-2` |
-| `CYCLE_MINUTES` | `30` | wait between cycles |
-| `MAX_FAILS` | `3` | consecutive failed/stalled cycles before stopping |
-| `MAIN_BRANCH` | `main` | branch PRs target |
-| `BASE_BRANCH` | *(current HEAD)* | the worktree branch to run on |
-| `AUTO_MIGRATE` | `1` | apply **non-data-destroying** merged migrations to this worktree's DB and carry on; `0` = always stop for you |
-| `LOG_DIR` | `./issue-loop-logs` | per-run logs (incl. `db.log`) + the pending-branch state file |
-| `STOP_FILE` | `.issue-loop-stop` | graceful-stop flag (independent of other loops) |
-| `PRETTY_OUTPUT` | `1` | condensed screen trace (tool + file + thinking); `0` shows the raw agent stream |
+| `MAIN_MODEL` | Codex configuration | Build and triage model |
+| `MAIN_EFFORT` | Codex configuration | Build and triage reasoning effort |
+| `PR_MODEL` | Codex configuration | Review and merge model |
+| `PR_EFFORT` | Codex configuration | Review and merge reasoning effort |
+| `CYCLE_MINUTES` | `30` | Wait between cycles |
+| `MAX_FAILS` | `3` | Consecutive failures or stalls before stopping |
+| `MAIN_BRANCH` | `main` | Integration branch |
+| `BASE_BRANCH` | Current branch | This worktree's base branch |
+| `AUTO_MIGRATE` | `1` | Apply eligible ledger-pending migrations; `0` hands pending work to a human |
+| `LOG_DIR` | `./issue-loop-logs` | Streams, command logs and PR state |
+| `STOP_FILE` | `.issue-loop-stop` | Graceful stop flag |
+| `PRETTY_OUTPUT` | `1` | Condensed terminal trace; `0` shows raw events |
 
-## What you see while it runs
+The current Codex login/configuration is used. `MAIN_CONFIG_DIR`, `PR_CONFIG_DIR`
+and `CLAUDE_CONFIG_DIR` belonged to the Claude runner and do not select Codex
+accounts. The runner uses `--sandbox danger-full-access -c approval_policy=never`
+for the existing unattended Docker/vault workflow. It keeps normal user/project
+configuration, tools and exec rules loaded.
 
-The screen shows one line per action, not the full agent stream:
+## Cycle and git workflow
 
+1. Fast-forward the base branch to `origin/main`. Dirty or diverged work stops
+   for a human; the loop does not discard it.
+2. Check the migration ledger. Apply eligible pending migrations through
+   `npm run db:migrate`, then recheck. Never execute SQL files directly. Missing
+   baseline, unknown orphans, destructive SQL or a failed check stops the loop.
+   Orphans traced to this loop's pending branches retain the existing treatment.
+3. Drain this loop's recorded PRs through `$do-pr auto #N`. GitHub confirms
+   whether each merged. Review-blocked PRs are parked; unknown results are retried.
+   A PR targeting an unmerged parent stays queued. New builds wait while the
+   ledger has pending PRs.
+4. If no ticket is ready, triage this folder's `needs-triage` tickets. Build-ready
+   work takes priority over triage. Requirements that need a person become
+   `ready-for-human` or `needs-info`, with a dated reason.
+5. Build one eligible ticket through `$do-issue`, including checks, PR creation
+   and tracker update. Follow blocker chains only within the selected folder.
+6. Update `NEEDS-HUMAN.md`, wait, and repeat.
+
+Progress means a new recorded PR branch or a ticket leaving `ready-for-agent`.
+The existing `<<<NO_OPEN_ISSUES>>>` final answer takes the final-drain path. Other
+runs without measurable progress count toward `MAX_FAILS`.
+
+PR ownership comes from the branch left checked out, with this worktree's HEAD
+reflog as the fallback when the agent switches back. The final sweep covers only
+branches visited during this run. Other worktrees' PRs are not adopted. Preserve
+`pending-branches` across restarts: deleting it loses the ownership record.
+
+The last QA ticket checks the whole feature. New buildable follow-ups stay in
+this folder and run on later cycles. Its implementation report and human decisions
+remain listed in `NEEDS-HUMAN.md`.
+
+## Logs and recovery
+
+| File under `LOG_DIR` | Meaning |
+|---|---|
+| `build-*.log`, `triage-*.log`, `merge-*.log` | Raw Codex JSONL plus stderr |
+| `<phase-log>.final.txt` | That session's final answer only |
+| `pending-branches` | Branches owned by this loop and awaiting merge |
+| `parked-prs` | PRs blocked at a review gate |
+| `merge-attempts-<pr>` | Retry count for one PR |
+| `git.log`, `gh.log`, `db.log` | Git, GitHub and migration command output |
+| `loop.lock` | Worktree loop owner |
+
+A tracker lock also lives under `${XDG_CACHE_HOME:-$HOME/.cache}/issue-loop`.
+A refused duplicate start must leave the running owner's locks intact.
+
+The terminal renderer already supports Codex `thread.*`, `turn.*` and `item.*`
+events. It condenses tool actions and messages; raw streams retain command output
+and diffs. Codex token usage is not a Claude subscription cost estimate.
+
+Read the `.final.txt` file for the verdict. A missing final answer is inconclusive:
+inspect the error events, process and exit status. Do not infer a crash from the
+absence of a Claude `result` event. Intermediate mentions of a completion marker
+are not final verdicts.
+
+A parked PR stays open with its branch intact. Resolve the gate, then requeue it:
+
+```bash
+printf '%s\n' 'feature/example-branch' >> issue-loop-logs/pending-branches
 ```
-agent claude-opus-5 in /home/sven/Projects/agcore-wt4
-  → Read memory/AgCore/planning/issues/<slug>/03-rls-employments.md
-  · Checking whether the policy already exists before adding it
-  → Edit db/migrations/20260731_force_rls_employments.sql
-  → Bash npm run typecheck
-done Opened PR #731  [37 turns $2.14]
+
+## Stop and restart
+
+From the worktree:
+
+```bash
+touch .issue-loop-stop
 ```
 
-File contents, command output and diffs are omitted here but written in full to
-`issue-loop-logs/`. Set `PRETTY_OUTPUT=0` for the raw stream.
+The loop finishes the current phase and exits at the next stop check. Ctrl-C is
+a hard stop. Before restarting, verify its process ended, inspect any unfinished
+work, return to the base branch, and keep the same tracker, settings and state.
 
-## When it stops
-
-| Banner | Exit | What to do |
+| Result/banner | Exit | Action |
 |---|---|---|
-| `ALL ISSUES DONE` | 0 | Folder fully worked, follow-ups included. |
-| `FOLDER FINISHED FOR AGENTS — N ticket(s) need a human, M PR(s) parked` | 2 | Read `NEEDS-HUMAN.md`: parked PRs, the implementation report, and any decisions left to you. |
-| `STOP REQUESTED` | 0 | You asked for it. |
-| `MIGRATION PULLED` / `MERGED` | 0 | The migration could destroy local dev data (`DROP TABLE/COLUMN/SCHEMA`, `TRUNCATE`, `DELETE FROM`, column-type rewrite, rename), or it failed to apply (see `db.log`). Apply it yourself, then restart. Everything else — including `DROP POLICY`/`FUNCTION`/`INDEX` and `DROP MATERIALIZED VIEW` (derived rows its own refresh rebuilds; it cannot be altered in place) — applies automatically and never stops the loop. |
-| `PRE-FLIGHT FAILED` | 1 | Usually a bad folder path, a dirty tree, or a tracker with no `**Triage:**` lines. |
-| `GIT STATE NEEDS A HUMAN` | 1 | Diverged branch or uncommitted work. Resolve, restart. |
-| `REPEATED INCONCLUSIVE MERGES` | 1 | Merge agent gave up 3×. Merge by hand, or try `PR_MODEL=opus`. |
-| `TOO MANY CONSECUTIVE FAILURES` | 1 | See below. |
+| `ALL ISSUES DONE` | 0 | Feature and follow-ups finished |
+| `FOLDER FINISHED FOR AGENTS` | 2 | Read human tickets and parked PRs in `NEEDS-HUMAN.md` |
+| `STOP REQUESTED` | 0 | Requested graceful stop |
+| Migration state needs a human | 0 | Read `db.log`; use the repository ledger procedure, then restart |
+| `PRE-FLIGHT FAILED` | 1 | Fix the reported folder, login or lock problem |
+| `GIT STATE NEEDS A HUMAN` | 1 | Resolve dirty or diverged work without discarding it |
+| Repeated failures, inconclusive merges, stuck/unmerged PRs | 1 | Read phase logs and GitHub state before restarting |
 
-**"No progress" warnings** mean the build agent opened no PR and closed no ticket. The usual cause
-is that every remaining `ready-for-agent` ticket still has an open `**Blocked by:**` — check those
-lines. Three in a row stops the loop rather than spinning.
+## Verify the runner
 
-## Design notes
+```bash
+bash -n ~/.codex/skills/issue-loop/scripts/issue-loop.sh
+python3 ~/.codex/skills/issue-loop/scripts/test_issue_loop.py
+```
 
-- **Progress is measured, not claimed**: a cycle counts as progress only if a new PR branch appeared
-  or a ticket left `ready-for-agent`. GitHub decides whether a PR merged, not the agent's output.
-- **Only its own PRs**: after each build the loop writes the branch it just produced into
-  `issue-loop-logs/pending-branches`, and the merge phase only ever looks up PR numbers for
-  branches in that ledger — so the docs loop's PRs, your manual PRs, and other worktrees' PRs are
-  invisible to it. The branch is dropped from the ledger once GitHub confirms the merge (or the PR
-  is gone). If a build agent pushes and switches back to the base branch, the loop falls back to
-  adopting a PR that appeared during that build window — but only if **exactly one** did and it is
-  not in the docs loop's `documentation/*` namespace; otherwise it lists them and leaves them to
-  you. Deleting `issue-loop-logs/` makes the loop forget pending PRs — merge those by hand.
-- **State counting uses `grep`, not `rg`** — `rg` is a shell-level alias here and is not on a bash
-  script's PATH.
-- **One loop per worktree**: each worktree has its own Docker stack and DB; two loops in one
-  worktree would fight over both.
+The integration tests use temporary repositories and fake external commands.
+They do not build tickets, contact GitHub or mutate the real database.

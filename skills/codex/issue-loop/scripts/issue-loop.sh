@@ -666,9 +666,26 @@ nothing and say so."
   local after_ready after_pending
   after_ready=$(count_role "ready-for-agent")
   after_pending=$(grep -c . "$STATE_FILE" 2>/dev/null || true)
-  if [ "${after_pending:-0}" -gt "${before_pending:-0}" ] || [ "$after_ready" -lt "$before_ready" ]; then
+  if [ "$after_ready" -lt "$before_ready" ]; then
     ok "build finished."
     return 0
+  fi
+  # A checked-out branch proves ownership, not completed work. A blocked agent
+  # may create an empty branch; require an actual open PR before scoring it.
+  if [ "${after_pending:-0}" -gt "${before_pending:-0}" ]; then
+    local pending_branch pending_pr
+    while IFS= read -r pending_branch; do
+      [ -n "$pending_branch" ] || continue
+      if ! pending_pr=$(gh pr list --state open --head "$pending_branch" \
+        --json number --jq '.[0].number' 2>>"$LOG_DIR/gh.log"); then
+        err "could not verify build PR — see $LOG_DIR/gh.log"
+        return 1
+      fi
+      if [ -n "$pending_pr" ] && [ "$pending_pr" != "null" ]; then
+        ok "build finished."
+        return 0
+      fi
+    done < "$STATE_FILE"
   fi
   warn "build opened no PR and closed no ticket"
   return 4

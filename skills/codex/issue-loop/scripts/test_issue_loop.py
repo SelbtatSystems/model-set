@@ -78,6 +78,11 @@ if phase == "build":
         rc = 17
     elif mode == "no_progress":
         pass
+    elif mode in ("empty_branch", "pr_without_tracker_update"):
+        subprocess.run(["git", "switch", "-C", "feature/test-unit"], check=True, capture_output=True)
+        if mode == "pr_without_tracker_update":
+            state["prs"].append(dict(number=1, branch="feature/test-unit", base="main", state="OPEN"))
+            (root / ".issue-loop-stop").touch()
     elif mode == "stop":
         (root / ".issue-loop-stop").touch()
     else:
@@ -290,6 +295,20 @@ class IssueLoopTests(unittest.TestCase):
         self.assertEqual(self.run_loop(), 1, self.output)
         self.assertEqual(len(self.agents), 2, self.output)
         self.assertIn("no progress 2/2", self.output)
+
+    def test_empty_branch_is_not_progress_and_stops_at_failure_limit(self):
+        self.fixture(mode="empty_branch")
+        self.assertEqual(self.run_loop(), 1, self.output)
+        self.assertEqual([call["phase"] for call in self.agents], ["build", "build"])
+        self.assertNotIn("build finished.", self.output)
+        self.assertIn("no progress 2/2", self.output)
+        self.assertIn("ready-for-agent", (self.root / "tracker" / "000.md").read_text())
+
+    def test_open_pr_counts_as_progress_before_tracker_update(self):
+        self.fixture(mode="pr_without_tracker_update")
+        self.assertEqual(self.run_loop(), 0, self.output)
+        self.assertIn("build finished.", self.output)
+        self.assertIn("feature/test-unit", (self.root / "issue-loop-logs" / "pending-branches").read_text())
 
     def test_stop_request_is_consumed_and_releases_locks(self):
         self.fixture(mode="stop")

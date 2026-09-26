@@ -5,7 +5,7 @@ description: Execute one ready-for-agent ticket end-to-end to done. Use when the
 
 # Do Issue
 
-Build one `ready-for-agent` ticket to done — the executor end of `to-prd` → `to-issues` → `triage`. **One ticket per run**, the same lifecycle every time. End the run only at step 7 *done* or an explicit stop condition (non-AFK ticket, open blocker, `<<<NO_OPEN_ISSUES>>>`) — a failed gate means fix and re-run, not stop.
+Build one `ready-for-agent` ticket to done — the executor end of `to-prd` → `to-issues` → `triage`. **One ticket per run**, the same lifecycle every time. End the run only at step 7 *done* or an explicit stop condition (non-AFK ticket, open blocker, `<<<NO_OPEN_ISSUES>>>`, or a person-only decision handed back per step 2) — a failed gate means fix and re-run, not stop.
 
 > **Never end the run while work is in flight.** A backgrounded test run, a rebuilding
 > container, a CI job, a delegated sub-agent — none of these is a place to stop and report
@@ -49,6 +49,14 @@ Stop and surface to the user — build nothing — if the ticket is not AFK (`**
 ### 2. Read the contract
 
 The ticket's **Agent Brief** (or its *What to build* + *Acceptance criteria*) is **the contract** — the spec you build against. Read it in full, plus the parent PRD for intent. Then load the owning context per `docs/agents/domain.md`: the `**App:**`'s `CONTEXT.md` glossary and the ADRs in that area. Work in glossary vocabulary. If the contract contradicts an ADR, stop and surface it instead of overriding.
+
+**Stopping on a decision — hand the ticket back.** Applies when the build needs a person: contract vs ADR conflict, a scope/product call the code forces, or provider docs that disprove the brief. A ticket left `ready-for-agent` is re-picked every loop cycle and stops the loop after `MAX_FAILS` (pay-adjustments 18, 2026-09-26: three identical stops; ticket 22 never ran). Required, in order:
+1. Append a dated `## Comments` entry: evidence (symbols, command + result, doc links) and the decision as 2–3 lettered options, recommendation first.
+2. Set `**Triage:**` to `ready-for-human` (product/scope decision) or `needs-info` (waits on an outside fact).
+3. No stray branch: delete an empty one you created; push real work as `wip/<slug>` and name it in the comment.
+4. End with a short summary. Do not print `<<<NO_OPEN_ISSUES>>>`.
+
+Not a decision: a failed gate, a flaky test, hard code. Fix those.
 
 ✓ **Done when:** you can restate the acceptance criteria as a checklist and you know the owning context.
 

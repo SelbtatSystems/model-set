@@ -115,15 +115,50 @@ run_codex() {  # run_codex <model-or-empty> <effort-or-empty> <logfile> <prompt>
 # ---- tracker-folder state (deterministic, script-side) --------------------
 # grep, not rg: `rg` is often a shell-level alias and is NOT on a bash script's PATH.
 # NEEDS-HUMAN.md is excluded so the loop never counts its own summary as a ticket.
+# Tickets ONLY — the tracker's issues/ dir, never the folder root. PRD.md carries a
+# `**Triage:**` line of its own (15 of 17 trackers say ready-for-agent), and counting it
+# as a ticket kept n_ready at 1 forever: the triage branch below runs only when n_ready
+# is 0, so a folder whose real queue ran dry never triaged — it built, got
+# <<<NO_OPEN_ISSUES>>> from the agent, and retired itself with needs-triage tickets
+# still sitting there. checkbox-unification did exactly that twice on 2026-09-12.
 list_role()  { grep -rlE "^\*\*Triage:\*\*[[:space:]]*$1" --include='*.md' \
-                 --exclude='NEEDS-HUMAN.md' "$TRACKER_DIR" 2>/dev/null; }
+                 --exclude='NEEDS-HUMAN.md' "$TRACKER_DIR/issues" 2>/dev/null; }
 count_role() { list_role "$1" | wc -l | tr -d ' '; }
+
+# A parked PR is a decision for a person, but park_blocked_pr only ever appends — nothing ever
+# removed an entry once the PR was merged or closed by hand. #1688 merged on 2026-09-13 and was
+# still listed a day later; because write_needs_human rebuilds NEEDS-HUMAN.md from this list
+# every cycle, that one dead entry had stamped itself into three separate trackers, each telling
+# a human to go read a gate comment on an already-merged PR.
+# Drop an entry only when GitHub positively answers MERGED or CLOSED. A network failure and a
+# deleted PR both come back as an empty string, and dropping on that would silently erase a
+# genuinely parked PR the first time the API blinked — the one error here that costs real work.
+prune_parked() {
+  [ -s "$PARKED_FILE" ] || return 0
+  local line pr state tmp="${PARKED_FILE}.tmp" dropped=0 kept=0
+  : > "$tmp"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    pr=$(printf '%s\n' "$line" | sed -n 's/^- #\([0-9]\{1,\}\) .*/\1/p')
+    # A line we cannot parse is a human's own note, not ours to delete.
+    if [ -z "$pr" ]; then printf '%s\n' "$line" >> "$tmp"; continue; fi
+    state=$(gh pr view "$pr" --json state --jq .state 2>>"$LOG_DIR/gh.log")
+    case "$state" in
+      MERGED|CLOSED) log "parked #${pr} is ${state} — unparking"; dropped=$((dropped+1)) ;;
+      *)             printf '%s\n' "$line" >> "$tmp"; kept=$((kept+1)) ;;
+    esac
+  done < "$PARKED_FILE"
+  mv "$tmp" "$PARKED_FILE"
+  [ "$dropped" -gt 0 ] && log "unparked ${dropped} PR(s); ${kept} still parked"
+  return 0
+}
 
 # NEEDS-HUMAN.md is the standing surface for tickets waiting on a person.
 # It also lists PRs parked at a review gate (see park_blocked_pr), so a blocked PR
 # is visible without having to halt the whole folder for it.
 write_needs_human() {
   local files parked=""
+  prune_parked
   files=$( { list_role "ready-for-human"; list_role "needs-info"; } | sort -u )
   [ -s "$PARKED_FILE" ] && parked=$(cat "$PARKED_FILE")
   if [ -z "$files" ] && [ -z "$parked" ]; then rm -f "$TRACKER_DIR/NEEDS-HUMAN.md"; return 0; fi

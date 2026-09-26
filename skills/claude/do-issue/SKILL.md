@@ -5,7 +5,7 @@ description: Execute one ready-for-agent ticket end-to-end to done. Use when the
 
 # Do Issue
 
-Build one `ready-for-agent` ticket to done — the executor end of `to-prd` → `to-issues` → `triage`. **One ticket per run**, the same lifecycle every time. End the run only at step 7 *done* or an explicit stop condition (non-AFK ticket, open blocker, `<<<NO_OPEN_ISSUES>>>`) — a failed gate means fix and re-run, not stop.
+Build one `ready-for-agent` ticket to done — the executor end of `to-prd` → `to-issues` → `triage`. **One ticket per run**, the same lifecycle every time. End the run only at step 7 *done* or an explicit stop condition (non-AFK ticket, open blocker, `<<<NO_OPEN_ISSUES>>>`, or a decision only a person can make — which you hand back per step 2's *Stopping on a decision*) — a failed gate means fix and re-run, not stop.
 
 > **Never end the run while work is in flight.** A backgrounded test run, a rebuilding
 > container, a CI job, a delegated sub-agent — none of these is a place to stop and report
@@ -49,6 +49,14 @@ Stop and surface to the user — build nothing — if the ticket is not AFK (`**
 ### 2. Read the contract
 
 The ticket's **Agent Brief** (or its *What to build* + *Acceptance criteria*) is **the contract** — the spec you build against. Read it in full, plus the parent PRD for intent. Then load the owning context per `docs/agents/domain.md`: the `**App:**`'s `CONTEXT.md` glossary and the ADRs in that area. Work in glossary vocabulary. If the contract contradicts an ADR, stop and surface it instead of overriding.
+
+**Stopping on a decision.** Sometimes the build cannot go on without a person: the contract contradicts an ADR, the code cannot hold what the brief asks for without a scope or product call, or a provider's documentation disproves the brief's premise. When that happens, hand the ticket back before you end the run. Otherwise it stays `ready-for-agent`, the autonomous issue-loop picks the same lowest-numbered ticket every cycle, and it stops after `MAX_FAILS` identical failures while tickets it could build wait behind it. This happened on 2026-09-26: pay-adjustments ticket 18 was retried three times, and ticket 22 never got a turn. To hand it back:
+- Append a dated `## Comments` entry with the evidence (file and symbol names, the command you ran and its result, doc links) and the decision as **2–3 lettered options**, with your recommendation first.
+- Flip `**Triage:**` to `ready-for-human` for a product or scope decision, or to `needs-info` when the ticket waits on an outside fact (provider docs, a sandbox result).
+- Leave no stray branch: delete an empty local branch you created; push a branch that has real work as `wip/<slug>` and name it in the comment.
+- End the run with a short summary. Do not emit `<<<NO_OPEN_ISSUES>>>` — other tickets may still be ready.
+
+A failed gate, a flaky test, or code that is hard to write is **not** a decision. Fix it.
 
 ✓ **Done when:** you can restate the acceptance criteria as a checklist and you know the owning context.
 

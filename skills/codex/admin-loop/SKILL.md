@@ -1,6 +1,6 @@
 ---
 name: admin-loop
-description: Autonomous ralph-loop for the AgCore Admin Command Center. Each run works exactly ONE unit — build the next ready-for-agent issue from the admin-command-center backlog end-to-end (branch → build → Docker-verify → PR), or, when the queue is empty, run a critique pass over the running dashboard (screenshot, hunt gaps against the PRD + DESIGN.md, file new issues) — then end with one sentinel. Use when the admin-loop runner invokes it, or the user says "run the admin loop" / "work the admin backlog" / "critique the admin dashboard".
+description: Autonomous ralph-loop for the AgCore Admin Command Center. Each run works exactly ONE unit — build the next ready-for-agent issue from the admin-command-center backlog end-to-end (branch → build → Docker-verify → PR), or, when no issue is takeable — the queue is empty, or everything left is blocked — run a critique pass over the running dashboard (screenshot, hunt gaps against the PRD + DESIGN.md, file new issues) — then end with one sentinel. Use when the admin-loop runner invokes it, or the user says "run the admin loop" / "work the admin backlog" / "critique the admin dashboard".
 ---
 
 # Admin Loop
@@ -13,8 +13,9 @@ together, never one side alone):
 
 - `<<<ADMIN_BUILT <issue-file>>>>` — slice built, PR open against main. Leave the PR open;
   the runner merges it next cycle via `/do-pr auto`. Never merge it yourself.
-- `<<<ADMIN_BLOCKED <issue-file> <reason>>>>` — this issue needs a human; issue annotated,
-  working tree left clean.
+- `<<<ADMIN_BLOCKED <issue-file> <reason>>>>` — the loop cannot proceed at all, and no critique
+  pass would help either; issue annotated, working tree left clean. This should be rare: a
+  queue whose every issue is blocked is a **critique pass**, not this.
 - `<<<ADMIN_CRITIQUE_FILED <count>>>>` — critique pass filed <count> new issues.
 - `<<<ADMIN_SATURATED>>>` — critique pass found nothing worth filing.
 
@@ -58,9 +59,20 @@ A candidate is takeable when every entry in its `**Blocked by:**` line is satisf
 - a prose external gate (e.g. "stripe-subscription-billing PRD must be shipped") → every
   issue in that feature's folder is `**Triage:** done`.
 
-Take the lowest-numbered takeable issue → **Build pass**. If none is takeable but blocked
-ready-for-agent issues remain, emit `ADMIN_BLOCKED` naming the tightest gate (usually a HITL
-provisioning task). If no open ready-for-agent issues remain at all → **Critique pass**.
+Take the lowest-numbered takeable issue → **Build pass**. If nothing is takeable → **Critique
+pass** — whether the queue is empty, or every remaining `ready-for-agent` issue is blocked.
+Those two look different but mean the same thing to this loop: there is no unit to build right
+now, and the useful thing to do instead is hunt for gaps. A blocked queue is ordinary waiting,
+not a failure. Sven triages when he gets to it; the loop keeps working meanwhile.
+
+When you critique because the queue is blocked rather than empty, first annotate the tightest
+gate: one dated `## Comments` line on the blocked issue naming what it waits on. **Only add it
+if that same gate is not already recorded there** — a queue can sit blocked for many cycles,
+and one comment per cycle would bury the issue.
+
+Reserve `ADMIN_BLOCKED` for a state no critique pass can work around — the dashboard will not
+come up, the Docker stack is broken, the issues folder is unreadable. A `needs-triage` blocker
+is not one of those.
 
 **Issue 47 (QA — full implementation review) is a build unit, not a critique pass**, and it
 comes first: it is a queued issue blocked by 22–43, so the selector takes it as soon as its

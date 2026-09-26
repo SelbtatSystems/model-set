@@ -104,7 +104,7 @@ folder. `NEEDS-HUMAN.md` is the thing to read when you come back.
 
 | Env | Default | Meaning |
 |---|---|---|
-| `MAIN_MODEL` | `fable` | build + triage agent |
+| `MAIN_MODEL` | `fable` | build + triage agent — the `fable` alias resolves to Claude Fable 5.1 |
 | `PR_MODEL` | `opus` | merge agent |
 | `MAIN_CONFIG_DIR` / `PR_CONFIG_DIR` | `~/.claude-max-2` | Claude account per phase, e.g. `~/.claude-max-2` |
 | `CYCLE_MINUTES` | `30` | wait between cycles |

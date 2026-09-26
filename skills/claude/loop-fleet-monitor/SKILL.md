@@ -339,9 +339,12 @@ MAIN_MODEL=opus PR_MODEL=opus CYCLE_MINUTES=30 \
   ~/.claude/skills/issue-loop/scripts/issue-loop.sh \
   memory/AgCore/planning/issues/<feature-slug>
 
-# docs loop
-cd /home/sven/Projects/agcore-wt1
-CYCLE_MINUTES=30 DOCS_MODEL=gpt-5.6-terra DOCS_EFFORT=high \
+# docs loop — DOCS_MODEL must be at least gpt-5.6-sol at high (Sven, 2026-09-10).
+# Never hand over gpt-5.6-terra or gpt-5.6-luna as the docs (writer) model; luna is fine for MERGE_MODEL.
+cd /home/sven/Projects/agcore-wt1      # VPS: ~/projects/git-worktrees/agcore/agcore-wt1-vps
+CYCLE_MINUTES=30 \
+DOCS_MODEL=gpt-5.6-sol DOCS_EFFORT=high \
+MERGE_MODEL=gpt-5.6-luna MERGE_EFFORT=high \
   ~/.codex/skills/docs-loop/scripts/docs-loop.sh
 
 # admin loop

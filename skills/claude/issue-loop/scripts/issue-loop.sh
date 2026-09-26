@@ -34,6 +34,12 @@ GH_RETRY_BASE="${GH_RETRY_BASE:-15}"      # linear backoff seed: 15s, 30s, 45s, 
 AUTO_MIGRATE="${AUTO_MIGRATE:-1}"         # 1 = apply ledger-pending migrations; 0 = always stop for a human
 MAIN_MODEL="${MAIN_MODEL:-fable}"         # build + triage agent model
 PR_MODEL="${PR_MODEL:-opus}"              # merge agent model
+# Per-phase thinking level: low|medium|high|xhigh|max. EMPTY IS NOT "no thinking" — it means the
+# flag is never passed, so the level comes from the account's settings.json `effortLevel`, which is
+# how every Claude phase has been getting `high` since long before this knob existed. Leave both
+# empty to keep that behaviour; set one to override just that phase.
+MAIN_EFFORT="${MAIN_EFFORT:-}"            # --effort for build + triage
+PR_EFFORT="${PR_EFFORT:-}"                # --effort for merge
 # Both phases run on the second Claude account by default; pass an empty value to use the
 # terminal's own account instead, e.g. MAIN_CONFIG_DIR= PR_CONFIG_DIR= issue-loop.sh <folder>
 MAIN_CONFIG_DIR="${MAIN_CONFIG_DIR-$HOME/.claude-max-2}"  # CLAUDE_CONFIG_DIR for build/triage
@@ -118,14 +124,19 @@ PY
 
 # claude spawn with per-phase model + optional per-phase account.
 # stream-json gives structured events to render; --verbose is required for it under --print.
-run_claude() {  # run_claude <model> <config-dir-or-empty> <logfile> <prompt>
-  local model="$1" cfg="$2" logfile="$3" prompt="$4"
+run_claude() {  # run_claude <model> <config-dir-or-empty> <effort-or-empty> <logfile> <prompt>
+  local model="$1" cfg="$2" effort="$3" logfile="$4" prompt="$5"
+  # An empty effort leaves --effort off the command line entirely, so the account's settings.json
+  # decides. Passing an unknown value does not fail: the CLI warns and uses its default, which is a
+  # silent downgrade — so the level is echoed in the startup banner where a typo is visible.
+  local -a eff=()
+  [ -n "$effort" ] && eff=(--effort "$effort")
   if [ -n "$cfg" ]; then
-    CLAUDE_CONFIG_DIR="$cfg" claude --model "$model" --permission-mode bypassPermissions \
+    CLAUDE_CONFIG_DIR="$cfg" claude --model "$model" "${eff[@]}" --permission-mode bypassPermissions \
       --output-format stream-json --verbose \
       --print "$prompt" </dev/null 2>&1 | tee "$logfile" | render
   else
-    claude --model "$model" --permission-mode bypassPermissions \
+    claude --model "$model" "${eff[@]}" --permission-mode bypassPermissions \
       --output-format stream-json --verbose \
       --print "$prompt" </dev/null 2>&1 | tee "$logfile" | render
   fi
@@ -135,15 +146,50 @@ run_claude() {  # run_claude <model> <config-dir-or-empty> <logfile> <prompt>
 # ---- tracker-folder state (deterministic, script-side) --------------------
 # grep, not rg: `rg` is often a shell-level alias and is NOT on a bash script's PATH.
 # NEEDS-HUMAN.md is excluded so the loop never counts its own summary as a ticket.
+# Tickets ONLY — the tracker's issues/ dir, never the folder root. PRD.md carries a
+# `**Triage:**` line of its own (15 of 17 trackers say ready-for-agent), and counting it
+# as a ticket kept n_ready at 1 forever: the triage branch below runs only when n_ready
+# is 0, so a folder whose real queue ran dry never triaged — it built, got
+# <<<NO_OPEN_ISSUES>>> from the agent, and retired itself with needs-triage tickets
+# still sitting there. checkbox-unification did exactly that twice on 2026-09-12.
 list_role()  { grep -rlE "^\*\*Triage:\*\*[[:space:]]*$1" --include='*.md' \
-                 --exclude='NEEDS-HUMAN.md' "$TRACKER_DIR" 2>/dev/null; }
+                 --exclude='NEEDS-HUMAN.md' "$TRACKER_DIR/issues" 2>/dev/null; }
 count_role() { list_role "$1" | wc -l | tr -d ' '; }
+
+# A parked PR is a decision for a person, but park_blocked_pr only ever appends — nothing ever
+# removed an entry once the PR was merged or closed by hand. #1688 merged on 2026-09-13 and was
+# still listed a day later; because write_needs_human rebuilds NEEDS-HUMAN.md from this list
+# every cycle, that one dead entry had stamped itself into three separate trackers, each telling
+# a human to go read a gate comment on an already-merged PR.
+# Drop an entry only when GitHub positively answers MERGED or CLOSED. A network failure and a
+# deleted PR both come back as an empty string, and dropping on that would silently erase a
+# genuinely parked PR the first time the API blinked — the one error here that costs real work.
+prune_parked() {
+  [ -s "$PARKED_FILE" ] || return 0
+  local line pr state tmp="${PARKED_FILE}.tmp" dropped=0 kept=0
+  : > "$tmp"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    pr=$(printf '%s\n' "$line" | sed -n 's/^- #\([0-9]\{1,\}\) .*/\1/p')
+    # A line we cannot parse is a human's own note, not ours to delete.
+    if [ -z "$pr" ]; then printf '%s\n' "$line" >> "$tmp"; continue; fi
+    state=$(gh pr view "$pr" --json state --jq .state 2>>"$LOG_DIR/gh.log")
+    case "$state" in
+      MERGED|CLOSED) log "parked #${pr} is ${state} — unparking"; dropped=$((dropped+1)) ;;
+      *)             printf '%s\n' "$line" >> "$tmp"; kept=$((kept+1)) ;;
+    esac
+  done < "$PARKED_FILE"
+  mv "$tmp" "$PARKED_FILE"
+  [ "$dropped" -gt 0 ] && log "unparked ${dropped} PR(s); ${kept} still parked"
+  return 0
+}
 
 # NEEDS-HUMAN.md is the standing surface for tickets waiting on a person.
 # It also lists PRs parked at a review gate (see park_blocked_pr), so a blocked PR
 # is visible without having to halt the whole folder for it.
 write_needs_human() {
   local files parked=""
+  prune_parked
   files=$( { list_role "ready-for-human"; list_role "needs-info"; } | sort -u )
   [ -s "$PARKED_FILE" ] && parked=$(cat "$PARKED_FILE")
   if [ -z "$files" ] && [ -z "$parked" ]; then rm -f "$TRACKER_DIR/NEEDS-HUMAN.md"; return 0; fi
@@ -566,7 +612,7 @@ one sentinel — a summary without one is a failed run."
     fi
     step "Launching claude (${PR_MODEL}) → /do-pr auto #${pr} (branch ${branch}, attempt ${attempt}) …"
     log "streaming below + → ${D}$logfile${R}"
-    run_claude "$PR_MODEL" "$PR_CONFIG_DIR" "$logfile" "$prompt"
+    run_claude "$PR_MODEL" "$PR_CONFIG_DIR" "$PR_EFFORT" "$logfile" "$prompt"
     local rc=$?
     # Ground truth first: GitHub cannot lie about whether the PR merged; sentinels are only
     # consulted for the not-merged outcomes (models decorate or omit them).
@@ -605,7 +651,7 @@ run_triage() {
   local logfile="$LOG_DIR/triage-$(date +%Y%m%d-%H%M%S).log"
   step "Launching claude (${MAIN_MODEL}) → /triage over ${TRACKER_DIR} …"
   log "streaming below + → ${D}$logfile${R}"
-  run_claude "$MAIN_MODEL" "$MAIN_CONFIG_DIR" "$logfile" \
+  run_claude "$MAIN_MODEL" "$MAIN_CONFIG_DIR" "$MAIN_EFFORT" "$logfile" \
     "/triage Triage every needs-triage ticket in ${TRACKER_DIR} — that folder only. \
 Autonomous run, never prompt: when a ticket's requirements are met and it is buildable by an \
 agent, flip it to ready-for-agent; when they are not, set ready-for-human (or needs-info) and \
@@ -675,7 +721,7 @@ run_build() {
   log "streaming below + → ${D}$logfile${R}"
   # "lowest-numbered with satisfied blockers" keeps the QA slice (blocked by everything) last,
   # and lets follow-up issues filed by QA be picked up on later cycles.
-  run_claude "$MAIN_MODEL" "$MAIN_CONFIG_DIR" "$logfile" \
+  run_claude "$MAIN_MODEL" "$MAIN_CONFIG_DIR" "$MAIN_EFFORT" "$logfile" \
     "/do-issue Work ${TRACKER_DIR} — that folder ONLY, ignore every other tracker. \
 Pick the ticket yourself: the lowest-numbered ready-for-agent ticket whose '**Blocked by:**' \
 entries are all done. If the ticket you would otherwise pick is blocked, do NOT stop — follow its \
@@ -807,6 +853,7 @@ banner "ISSUE LOOP STARTING — ${TRACKER_DIR}"
 log "worktree: ${B}$(pwd)${R}"   # printed loudly: starting in the wrong worktree is easy to miss
 log "cycle=${CYCLE_MINUTES}m  base=${BASE_BRANCH}  main=${MAIN_BRANCH}"
 log "models: build/triage=${MAIN_MODEL}  merge=${PR_MODEL}"
+log "effort: build/triage=${MAIN_EFFORT:-settings.json}  merge=${PR_EFFORT:-settings.json}"
 log "accounts: build/triage=${MAIN_CONFIG_DIR:-terminal default}  merge=${PR_CONFIG_DIR:-terminal default}"
 log "stop gracefully: ${B}touch ${STOP_FILE}${R}"
 

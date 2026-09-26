@@ -192,10 +192,48 @@ prep_worktree() {
 # Still biased to stop: an unrecognised destructive-looking statement counts as unsafe.
 # Comments are stripped first so a DROP mentioned in a comment does not halt the loop.
 DESTRUCTIVE_SQL='\bDROP[[:space:]]+(TABLE|COLUMN|SCHEMA|DATABASE|SEQUENCE|VIEW|TYPE|EXTENSION|ROLE|USER)\b|\bTRUNCATE\b|\bDELETE[[:space:]]+FROM\b|\bALTER[[:space:]]+COLUMN\b[^;]*\bTYPE\b|\bRENAME\b'
+# Only the SQL that runs when the file is applied — comments and CREATE FUNCTION
+# bodies removed. A function body is a definition: its DELETE runs when something
+# calls the function, never at apply time, so a migration that merely defines a
+# retention function deletes nothing. A DO block is the opposite — it executes
+# immediately — and deliberately stays in scope, as does everything after a body
+# closes. Unbalanced dollar quoting exits 3 rather than silently swallowing the
+# rest of the file, so the caller fails closed.
+# Ported verbatim from issue-loop.sh on 2026-09-12: the naive text scan this
+# replaced refused 31 of the 205 migrations then on main, and stopped the docs
+# loop on 20260911_083000_retention_v3_narrow_workspace.sql, whose executable
+# half is nothing but CREATE OR REPLACE FUNCTION, REVOKE and GRANT.
+migration_executable_sql() {
+  sed -e 's/--.*$//' "$1" | awk '
+    {
+      line = $0
+      if (inbody) {
+        i = index(line, tag)
+        if (i == 0) next
+        line = substr(line, i + length(tag)); inbody = 0
+      }
+      if (!pending && toupper(line) ~ /CREATE[ \t]+(OR[ \t]+REPLACE[ \t]+)?FUNCTION/) pending = 1
+      if (pending && match(line, /\$[A-Za-z_0-9]*\$/)) {
+        tag  = substr(line, RSTART, RLENGTH)
+        head = substr(line, 1, RSTART - 1)
+        rest = substr(line, RSTART + RLENGTH)
+        pending = 0
+        i = index(rest, tag)
+        # a one-line body: keep whatever follows its closing tag
+        if (i > 0) { print head " " substr(rest, i + length(tag)); next }
+        inbody = 1; print head; next
+      }
+      if (pending && line ~ /;[ \t]*$/) pending = 0
+      print line
+    }
+    END { if (inbody) exit 3 }
+  '
+}
+
 migration_is_additive() {
   local sql
-  sql=$(sed -e 's/--.*$//' "$1" | tr '\n' ' ')
-  ! printf '%s' "$sql" | grep -qiE "$DESTRUCTIVE_SQL"
+  sql=$(migration_executable_sql "$1") || return 1   # unbalanced $$ — cannot judge it
+  ! printf '%s' "$sql" | tr '\n' ' ' | grep -qiE "$DESTRUCTIVE_SQL"
 }
 
 # returns 0 = applied (loop may continue), 2 = needs a human
@@ -249,7 +287,11 @@ merge sentinel on its own line, as the skill specifies." \
     </dev/null 2>&1 | tee "$logfile" | render
   local rc=${PIPESTATUS[0]}
   local hay="$final"
-  [ -s "$final" ] || hay="$logfile"
+  # A crashed run writes no final message. Never fall back to the raw stream: it holds the skill
+  # file and every tool result, so a sentinel merely quoted there reads as one the agent emitted.
+  # That is how a model-capacity failure on 2026-09-14 was mis-read as DOCS COMPLETE and stopped
+  # the loop with the queue still full. No final message = unknown state; the caller retries.
+  [ -s "$final" ] || hay=/dev/null
   # Ground truth first: models decorate or omit the sentinel, but GitHub cannot lie about
   # whether the PR merged. Sentinels are only consulted for the not-merged outcomes.
   local state; state=$(gh pr view "$pr" --json state --jq .state 2>>"$LOG_DIR/gh.log")
@@ -281,7 +323,11 @@ End with exactly one sentinel on its own line, as the skill specifies." \
     </dev/null 2>&1 | tee "$logfile" | render   # stdin closed: codex waits on a piped stdin otherwise
   local rc=${PIPESTATUS[0]}
   local hay="$final"
-  [ -s "$final" ] || hay="$logfile"   # no final message captured → fall back to the raw stream
+  # A crashed run writes no final message. Never fall back to the raw stream: it holds the skill
+  # file and every tool result, so a sentinel merely quoted there reads as one the agent emitted.
+  # That is how a model-capacity failure on 2026-09-14 was mis-read as DOCS COMPLETE and stopped
+  # the loop with the queue still full. No final message = unknown state; the caller retries.
+  [ -s "$final" ] || hay=/dev/null
   # Order matters: SATURATED/COMPLETE are exact, the rest are prefixes. A pass that files issues
   # or archives a folder is progress even though it publishes no page.
   if   grep -qF "$COMPLETE_TOKEN"  "$hay"; then                                              return 10

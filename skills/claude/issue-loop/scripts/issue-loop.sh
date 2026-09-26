@@ -156,6 +156,28 @@ list_role()  { grep -rlE "^\*\*Triage:\*\*[[:space:]]*$1" --include='*.md' \
                  --exclude='NEEDS-HUMAN.md' "$TRACKER_DIR/issues" 2>/dev/null; }
 count_role() { list_role "$1" | wc -l | tr -d ' '; }
 
+# A ready-for-agent ticket is startable only when every ticket its `**Blocked by:**` line names is
+# done or wontfix; a named file that no longer exists counts as satisfied (renamed or archived).
+# Gating triage on count_role instead left a folder whose last ready tickets all waited on a
+# ready-for-human ticket stuck: n_ready never reached 0, so triage never ran, the build agent
+# answered <<<NO_OPEN_ISSUES>>>, and the folder retired with needs-triage tickets untouched.
+count_startable() {
+  local f b blockers open n=0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    blockers=$(grep -m1 -E '^\*\*Blocked by:\*\*' "$f" 2>/dev/null \
+      | grep -oE '[0-9]+-[A-Za-z0-9._-]+\.md' || true)
+    open=0
+    for b in $blockers; do
+      [ -f "$TRACKER_DIR/issues/$b" ] || continue
+      grep -qE '^\*\*Triage:\*\*[[:space:]]*(done|wontfix)' "$TRACKER_DIR/issues/$b" \
+        || { open=1; break; }
+    done
+    [ "$open" -eq 0 ] && n=$((n+1))
+  done <<< "$(list_role 'ready-for-agent')"
+  echo "$n"
+}
+
 # A parked PR is a decision for a person, but park_blocked_pr only ever appends — nothing ever
 # removed an entry once the PR was merged or closed by hand. #1688 merged on 2026-09-13 and was
 # still listed a day later; because write_needs_human rebuilds NEEDS-HUMAN.md from this list
@@ -662,6 +684,18 @@ append a one-line dated reason to the ticket's Comments. Change nothing outside 
   return 0
 }
 
+# One triage pass, scored. A pass that moves no ticket out of needs-triage counts as a failure,
+# so a folder triage cannot resolve stops on MAX_FAILS instead of re-triaging every cycle.
+triage_pass() {
+  local before
+  before=$(count_role "needs-triage")
+  run_triage || { fails=$((fails+1)); warn "triage failure ${fails}/${MAX_FAILS}"; return; }
+  if [ "$(count_role 'needs-triage')" -ge "$before" ]; then
+    fails=$((fails+1))
+    warn "triage moved no ticket ${fails}/${MAX_FAILS}"
+  fi
+}
+
 # A build agent that dies mid-response (dropped connection, killed process, spent usage) usually
 # dies AFTER committing and BEFORE pushing. The cycle is a failure either way — the ticket is not
 # done — but the commits are real work on a local branch that nothing will ever push: the next
@@ -883,13 +917,14 @@ while :; do
   check_stop
 
   # Phase 2: folder state decides what happens.
-  # Building comes FIRST — triage only runs when there is nothing left to build, so work starts
-  # immediately and needs-triage tickets are converted when the ready queue actually runs dry.
+  # Building comes FIRST — triage only runs when nothing is startable, so work starts immediately
+  # and needs-triage tickets are converted when the startable queue actually runs dry. Startable,
+  # not ready: a ready ticket still waiting on a ready-for-human blocker is not buildable work.
   n_ready=$(count_role "ready-for-agent")
   n_triage=$(count_role "needs-triage")
-  if [ "$n_ready" -eq 0 ] && [ "$n_triage" -gt 0 ]; then
-    log "nothing ready to build; ${n_triage} ticket(s) need triage"
-    run_triage || { fails=$((fails+1)); warn "triage failure ${fails}/${MAX_FAILS}"; }
+  if [ "$(count_startable)" -eq 0 ] && [ "$n_triage" -gt 0 ]; then
+    log "nothing startable to build (${n_ready} ready, all blocked); ${n_triage} ticket(s) need triage"
+    triage_pass
     n_ready=$(count_role "ready-for-agent")   # triage may have just released work
   fi
   write_needs_human
@@ -916,8 +951,14 @@ while :; do
     run_build; brc=$?
     case "$brc" in
       0) fails=0 ;;
-      5) log "tracker has nothing left an agent can take — finishing up"
-         finish_tracker ;;
+      5) if [ "$(count_role 'needs-triage')" -gt 0 ]; then
+           # Never retire a folder with untriaged tickets: triage may release the next unit.
+           log "nothing an agent can take, but $(count_role 'needs-triage') ticket(s) need triage — triaging"
+           triage_pass
+         else
+           log "tracker has nothing left an agent can take — finishing up"
+           finish_tracker
+         fi ;;
       4) fails=$((fails+1))
          warn "no progress ${fails}/${MAX_FAILS} — every remaining ready-for-agent ticket may still have an open blocker" ;;
       *) fails=$((fails+1)); warn "build failure ${fails}/${MAX_FAILS} — continuing" ;;

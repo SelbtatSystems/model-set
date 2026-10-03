@@ -40,10 +40,10 @@ PR_MODEL="${PR_MODEL:-opus}"              # merge agent model
 # empty to keep that behaviour; set one to override just that phase.
 MAIN_EFFORT="${MAIN_EFFORT:-}"            # --effort for build + triage
 PR_EFFORT="${PR_EFFORT:-}"                # --effort for merge
-# Both phases run on the second Claude account by default; pass an empty value to use the
-# terminal's own account instead, e.g. MAIN_CONFIG_DIR= PR_CONFIG_DIR= issue-loop.sh <folder>
-MAIN_CONFIG_DIR="${MAIN_CONFIG_DIR-$HOME/.claude-max-2}"  # CLAUDE_CONFIG_DIR for build/triage
-PR_CONFIG_DIR="${PR_CONFIG_DIR-$HOME/.claude-max-2}"      # CLAUDE_CONFIG_DIR for merge
+# Both phases run on the primary Claude account (~/.claude) by default; point a phase at another
+# profile to move it, e.g. PR_CONFIG_DIR=~/.claude-max-2 issue-loop.sh <folder>
+MAIN_CONFIG_DIR="${MAIN_CONFIG_DIR-$HOME/.claude}"  # CLAUDE_CONFIG_DIR for build/triage
+PR_CONFIG_DIR="${PR_CONFIG_DIR-$HOME/.claude}"      # CLAUDE_CONFIG_DIR for merge
 STATE_FILE="$LOG_DIR/pending-branches"    # branches this loop built, awaiting merge
 PARKED_FILE="$LOG_DIR/parked-prs"         # PRs blocked at a gate: surfaced, not retried
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

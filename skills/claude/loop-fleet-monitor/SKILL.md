@@ -355,9 +355,10 @@ CYCLE_MINUTES=30 ADMIN_MODEL=opus MERGE_MODEL=opus ./scripts/admin-loop.sh
 On the VPS, same shape with `~/projects/git-worktrees/agcore/agcore-wt1-vps` and the skills at
 `~/.claude/skills/…`.
 
-**Accounts and models.** Claude phases default to the second subscription (`~/.claude-max-2`).
-`MAIN_CONFIG_DIR=` / `PR_CONFIG_DIR=` (empty) move a phase to the primary account; docs-loop needs a
-real path (`MERGE_CONFIG_DIR=$HOME/.claude`). Only codex agents have a thinking level
+**Accounts and models.** Every Claude phase of every loop runs on the primary account (`~/.claude`)
+by default (Sven, 2026-10-03). Hand over start commands without an account override; pass
+`MAIN_CONFIG_DIR=…` / `PR_CONFIG_DIR=…` only if Sven asks for another account. The docs-loop runs
+on codex and has no Claude account. Only codex agents have a thinking level
 (`DOCS_EFFORT`, `ADMIN_EFFORT`); for Claude phases a bigger model is the only lever. Details:
 `memory/_cheat-sheets/loops.md`.
 

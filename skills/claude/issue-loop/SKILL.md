@@ -20,7 +20,7 @@ for an agent. Start it from the repo root of the worktree that should do the wor
 |---|---|---|
 | `MAIN_MODEL` | `fable` | build agent (`do-issue`) and triage agent — the `fable` alias resolves to Claude Fable 5.1 |
 | `PR_MODEL` | `opus` | merge agent (`do-pr`) |
-| `MAIN_CONFIG_DIR` / `PR_CONFIG_DIR` | *(terminal default)* | `CLAUDE_CONFIG_DIR` per phase, e.g. `$HOME/.claude-max-2` |
+| `MAIN_CONFIG_DIR` / `PR_CONFIG_DIR` | `$HOME/.claude` | `CLAUDE_CONFIG_DIR` per phase, e.g. `$HOME/.claude-max-2` |
 | `CYCLE_MINUTES` | `30` | wait between cycles |
 
 `MAIN_MODEL=opus` runs Opus for build and merge; the default pair is Fable build + Opus merge.

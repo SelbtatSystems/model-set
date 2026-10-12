@@ -477,7 +477,7 @@ sync_database() {
 # PRs — a slice built on an unmerged parent targets that parent, not main — and the final sweep
 # then walked past a PR this worktree had built.
 open_pr_branches() {
-  gh pr list --state open --json headRefName \
+  gh pr list --state open --limit 200 --json headRefName \
     --jq '.[].headRefName' 2>>"$LOG_DIR/gh.log" | sort
 }
 record_branch() {
@@ -485,6 +485,26 @@ record_branch() {
   [ -n "$b" ] || return 0
   grep -qFx "$b" "$STATE_FILE" && return 0
   echo "$b" >> "$STATE_FILE"; log "recorded pending branch: $b"
+}
+# The branch an open PR carries this local branch's commits on. An agent that reworks an existing
+# PR on a fresh local branch and pushes it with `git push origin HEAD:<pr-branch>` leaves a local
+# name no PR carries. Recording that name dropped #2457 from the ledger as "merged or closed"
+# (wt3, 2026-10-11): no merge ever ran on it, it stayed a draft, and two PRs were stacked on it.
+# Prints the PR branch and returns 0; prints the local name and returns 1 when no open PR holds it.
+pr_branch_for() {
+  local b="$1" open up sha via_sha
+  open=$(open_pr_branches) || { echo "$b"; return 1; }
+  if printf '%s\n' "$open" | grep -qFx "$b"; then echo "$b"; return 0; fi
+  up=$(git rev-parse --abbrev-ref --symbolic-full-name "${b}@{upstream}" 2>/dev/null)
+  up=${up#origin/}
+  if [ -n "$up" ] && printf '%s\n' "$open" | grep -qFx "$up"; then echo "$up"; return 0; fi
+  sha=$(git rev-parse -q --verify "${b}^{commit}" 2>/dev/null)
+  if [ -n "$sha" ]; then
+    via_sha=$(gh pr list --state open --limit 200 --json headRefName,headRefOid \
+      --jq ".[] | select(.headRefOid == \"${sha}\") | .headRefName" 2>>"$LOG_DIR/gh.log" | head -1)
+    if [ -n "$via_sha" ]; then echo "$via_sha"; return 0; fi
+  fi
+  echo "$b"; return 1
 }
 # Branch names this worktree checked out, from line $1 of its private HEAD reflog onward
 # (pass 0 for "the whole history"). Detached-HEAD hashes and the base branch are dropped.
@@ -527,6 +547,13 @@ drain_pending() {
     # One call, both fields: number and base arrive on one tab-separated line.
     IFS=$'\t' read -r pr pr_base < <(gh pr list --state open --head "$branch" \
       --json number,baseRefName --jq '.[0] | "\(.number)\t\(.baseRefName)"' 2>>"$LOG_DIR/gh.log")
+    local pb
+    if { [ -z "$pr" ] || [ "$pr" = "null" ]; } && pb=$(pr_branch_for "$branch") && [ "$pb" != "$branch" ]; then
+      warn "branch ${branch} has no PR of its own; its commits are on ${pb} — queuing that instead"
+      forget_branch "$branch"; record_branch "$pb"; branch="$pb"
+      IFS=$'\t' read -r pr pr_base < <(gh pr list --state open --head "$branch" \
+        --json number,baseRefName --jq '.[0] | "\(.number)\t\(.baseRefName)"' 2>>"$LOG_DIR/gh.log")
+    fi
     if [ -z "$pr" ] || [ "$pr" = "null" ]; then
       log "branch ${branch}: no open PR (merged or closed) — dropping from state"
       forget_branch "$branch"
@@ -669,9 +696,11 @@ rescue_unpushed_work() {  # rescue_unpushed_work <branch>
 # returns 0 = progress (PR opened or a ticket closed), 1 = agent failure, 4 = no progress
 run_build() {
   local logfile="$LOG_DIR/build-$(date +%Y%m%d-%H%M%S).log"
-  local before_ready before_pending REFLOG reflog_before
+  local before_ready before_pending REFLOG reflog_before head_before sha_before
   before_ready=$(count_role "ready-for-agent")
   before_pending=$(grep -c . "$STATE_FILE" 2>/dev/null || true)
+  head_before=$(git symbolic-ref --short -q HEAD)
+  sha_before=$(git rev-parse -q --verify HEAD)
   # This worktree's private HEAD reflog. No other loop can write to it, so it is proof of what
   # THIS worktree checked out — unlike a time window over `gh pr list`, which is contaminated by
   # every concurrent loop in the repo. See the ownership fallback below.
@@ -697,21 +726,27 @@ nothing and say so."
   # Ownership ledger. Primary signal: the branch the agent left HEAD on.
   local cur; cur=$(git symbolic-ref --short -q HEAD)
   if [ -n "$cur" ] && [ "$cur" != "$BASE_BRANCH" ]; then
-    record_branch "$cur"
+    # A build that neither switched branch nor committed built nothing here: HEAD is where the
+    # merge agent left it. Queuing it re-queued parked #2465 every cycle (wt3, 2026-10-12), each
+    # time for a merge run that blocked again on the same gate.
+    if [ "$cur" = "$head_before" ] && [ "$(git rev-parse -q --verify HEAD)" = "$sha_before" ]; then
+      log "build left HEAD on ${cur}, untouched since before the build — not queuing it"
+    else
+      record_branch "$(pr_branch_for "$cur")"
+    fi
   else
     # Fallback: the agent pushed and switched back, so HEAD tells us nothing. Ask this worktree's
     # own reflog which branches IT visited during the build and adopt every one that still has an
     # open PR. A concurrent loop's PR can never appear here, so unlike the old "exactly one new PR
     # in the time window" rule this neither swallows another loop's work nor strands our own when
     # two loops happen to open a PR in the same window (that is how #802 and #806 were orphaned).
-    local visited open_now b adopted=0
+    local visited b pb adopted=0
     visited=$(visited_branches "$reflog_before")
-    open_now=$(open_pr_branches)
     while IFS= read -r b; do
       [ -n "$b" ] || continue
-      if printf '%s\n' "$open_now" | grep -qFx "$b"; then
-        record_branch "$b"; adopted=$((adopted+1))
-        warn "agent left HEAD on ${BASE_BRANCH}; adopted ${b} from this worktree's reflog"
+      if pb=$(pr_branch_for "$b"); then
+        record_branch "$pb"; adopted=$((adopted+1))
+        warn "agent left HEAD on ${BASE_BRANCH}; adopted ${pb} from this worktree's reflog"
       fi
     done <<< "$visited"
     if [ "$adopted" -eq 0 ] && [ -n "$visited" ]; then
@@ -764,13 +799,12 @@ nothing and say so."
 # Never exits while a PR this worktree built is still open: the ledger is topped up from the
 # reflog first, so an ownership miss earlier in the run cannot strand a PR at the finish line.
 finish_tracker() {
-  local b open_now swept=0 drc n_human n_parked
-  open_now=$(open_pr_branches)
+  local b pb swept=0 drc n_human n_parked
   while IFS= read -r b; do
     [ -n "$b" ] || continue
-    if printf '%s\n' "$open_now" | grep -qFx "$b" && ! grep -qFx "$b" "$STATE_FILE" 2>/dev/null; then
-      record_branch "$b"; swept=$((swept+1))
-      warn "final sweep: ${b} was built here and is still open — merging before we stop"
+    if pb=$(pr_branch_for "$b") && ! grep -qFx "$pb" "$STATE_FILE" 2>/dev/null; then
+      record_branch "$pb"; swept=$((swept+1))
+      warn "final sweep: ${pb} was built here and is still open — merging before we stop"
     fi
   done <<< "$(visited_branches "$RUN_REFLOG_START")"
   [ "$swept" -gt 0 ] && log "final sweep adopted ${swept} orphaned PR branch(es)"

@@ -178,6 +178,29 @@ count_startable() {
   echo "$n"
 }
 
+# agent-browser Chromes outlive a run that ends without `agent-browser close` (killed,
+# timed out, or it just forgot). Their driver is gone, so they hang under systemd and keep
+# whatever the last page does — on 2026-09-27 one sat on a PDF at 100% of a core for 17.5 h,
+# holding 2.8 GB, and SIGTERM could not stop it (Chrome's shutdown waits on the busy tab).
+# A browser a live run owns always has its agent-browser driver as parent, so it is never
+# touched. Machine-wide on purpose: an orphan from any loop or session is equally dead.
+REAP_BROWSER_MIN_AGE="${REAP_BROWSER_MIN_AGE:-7200}"   # seconds; younger orphans are left alone
+reap_orphan_browsers() {
+  local pid parent age reaped=0
+  for pid in $(pgrep -f "$HOME/.agent-browser/browsers/[^ ]*/chrome --remote-debugging-port" 2>/dev/null); do
+    parent=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    [ -n "$parent" ] || continue
+    [ "$(ps -o comm= -p "$parent" 2>/dev/null)" = systemd ] || continue   # PID 1 or a user subreaper
+    age=$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')
+    [ "${age:-0}" -ge "$REAP_BROWSER_MIN_AGE" ] || continue
+    # Chrome leads its own process group; killing the group takes the zygote and tabs with it.
+    [ "$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')" = "$pid" ] || continue
+    kill -KILL -- "-$pid" 2>/dev/null && reaped=$((reaped+1)) \
+      && warn "reaped orphaned agent-browser Chrome $pid (running $((age/3600))h, no driver)"
+  done
+  return 0
+}
+
 # A parked PR is a decision for a person, but park_blocked_pr only ever appends — nothing ever
 # removed an entry once the PR was merged or closed by hand. #1688 merged on 2026-09-13 and was
 # still listed a day later; because write_needs_human rebuilds NEEDS-HUMAN.md from this list
@@ -932,6 +955,7 @@ while :; do
   check_stop
   cycle=$((cycle+1))
   banner "CYCLE $cycle  —  $(ts)"
+  reap_orphan_browsers
 
   prep_worktree || stop_loop "GIT STATE NEEDS A HUMAN — stopping" 1
   sync_database \

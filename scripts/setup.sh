@@ -352,6 +352,13 @@ fi
 export OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
 export OPENCODE_DISABLE_EXTERNAL_SKILLS=1
 export PATH="$NPM_BIN:\$HOME/.local/bin:\$PATH"
+# Agent shells (Claude Code sets CLAUDECODE=1) run commands the way bash does:
+# unquoted \$vars split, unmatched globs pass through, =word stays literal,
+# and ls prints plain names instead of eza colour codes.
+if [ -n "\$CLAUDECODE" ] && [ -n "\$ZSH_VERSION" ]; then
+  setopt sh_word_split no_nomatch no_equals
+  unalias ls la ll lsg 2>/dev/null
+fi
 # <<< model-set <<<
 EOF
   ok "added model-set block to $RC"

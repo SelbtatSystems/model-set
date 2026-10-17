@@ -723,6 +723,9 @@ against ${MAIN_BRANCH} when the local gate is green. Any new issue you need to f
 that same folder. Only if EVERY ready-for-agent ticket is blocked by something unfinished: change \
 nothing and say so."
   local rc=$?
+  # Every branch this build checked out. The final sweep adopts only these (see BUILT_BRANCHES).
+  local visited; visited=$(visited_branches "$reflog_before")
+  [ -n "$visited" ] && BUILT_BRANCHES+="${visited}"$'\n'
   # Ownership ledger. Primary signal: the branch the agent left HEAD on.
   local cur; cur=$(git symbolic-ref --short -q HEAD)
   if [ -n "$cur" ] && [ "$cur" != "$BASE_BRANCH" ]; then
@@ -740,8 +743,7 @@ nothing and say so."
     # open PR. A concurrent loop's PR can never appear here, so unlike the old "exactly one new PR
     # in the time window" rule this neither swallows another loop's work nor strands our own when
     # two loops happen to open a PR in the same window (that is how #802 and #806 were orphaned).
-    local visited b pb adopted=0
-    visited=$(visited_branches "$reflog_before")
+    local b pb adopted=0
     while IFS= read -r b; do
       [ -n "$b" ] || continue
       if pb=$(pr_branch_for "$b"); then
@@ -796,8 +798,8 @@ nothing and say so."
 }
 
 # ---- terminal path: the tracker has no agent-workable ticket left -------------
-# Never exits while a PR this worktree built is still open: the ledger is topped up from the
-# reflog first, so an ownership miss earlier in the run cannot strand a PR at the finish line.
+# Never exits while a PR this run's builds made is still open: the ledger is topped up from
+# BUILT_BRANCHES first, so an ownership miss earlier in the run cannot strand a PR at the finish line.
 finish_tracker() {
   local b pb swept=0 drc n_human n_parked
   while IFS= read -r b; do
@@ -806,7 +808,7 @@ finish_tracker() {
       record_branch "$pb"; swept=$((swept+1))
       warn "final sweep: ${pb} was built here and is still open — merging before we stop"
     fi
-  done <<< "$(visited_branches "$RUN_REFLOG_START")"
+  done <<< "$(sort -u <<< "$BUILT_BRANCHES")"
   [ "$swept" -gt 0 ] && log "final sweep adopted ${swept} orphaned PR branch(es)"
 
   drain_pending; drc=$?
@@ -831,10 +833,12 @@ preflight || stop_loop "PRE-FLIGHT FAILED — fix the above and restart" 1
 
 cycle=0
 fails=0
-# Where this run starts in the worktree's HEAD reflog. The final sweep looks only at branches
-# visited after this point: sweeping the whole history would adopt long-dead branches this
-# worktree once checked out, and auto-merge one if somebody else has a PR open on it.
-RUN_REFLOG_START=$(wc -l < "$(git rev-parse --git-path logs/HEAD)" 2>/dev/null || echo 0)
+# Branches this run's builds checked out; run_build appends them. The final sweep adopts only
+# these. Not the whole HEAD reflog since the run started: that also holds branches a person or
+# another agent checked out here during the cycle wait, and the sweep auto-merged one (wt1
+# adopted payroll PR #2526 at the end of its camera tracker, 2026-10-14). Not the whole history
+# either: that holds long-dead branches this worktree once checked out.
+BUILT_BRANCHES=""
 banner "ISSUE LOOP STARTING — ${TRACKER_DIR}"
 log "worktree: ${B}$(pwd)${R}"   # printed loudly: starting in the wrong worktree is easy to miss
 log "cycle=${CYCLE_MINUTES}m  base=${BASE_BRANCH}  main=${MAIN_BRANCH}"

@@ -121,9 +121,35 @@ gh pr create --draft --base main   # use --base <slice-branch> only for a stacke
 
 `/do-pr` marks the PR ready before it merges — that is what fires the gated jobs. Never mark it ready yourself here; a PR that is ready before review has been done pays for CI on code the review is about to change.
 
-The body restates the slice, lists each acceptance criterion with its verified result, and references the ticket.
+Write the body in this shape — short prose, in the glossary's words:
 
-✓ **Done when:** the PR exists and names the ticket.
+```markdown
+## Summary
+
+<what the slice does, in 1–3 lines. Add the smallest picture that makes it clear —
+a call tree, file tree, component tree or diff sketch — only when the change has structure worth showing.>
+
+Ticket: <path to the ticket file>
+
+## Evidence
+
+- **Before:** <failing test run, output, or screenshot>
+  **After:** <passing test run, output, or screenshot>
+- <each acceptance criterion> — <the check you ran in step 5, and its result>
+
+## Merge danger
+
+**Door:** <one-way or two-way>
+**Blast radius:** <one word>
+
+<optional: what could break, and for whom>
+```
+
+- **Evidence** — show the exact test that failed before and passes after (its name and command), or the output; a screenshot when the change is visual and you have one.
+- **Door** — two-way when a revert and redeploy undo it completely; one-way when they cannot: a migration that drops or rewrites data, a message or email already sent, a side effect in an external system, a contract other code now depends on.
+- **Blast radius** — who or what breaks if it goes wrong: one screen, one app, every tenant, payroll. `do-pr` reads this section and may only raise its risk tier from it.
+
+✓ **Done when:** the PR exists, names the ticket, and its body has all three sections.
 
 ### 7. Close the loop in the tracker
 

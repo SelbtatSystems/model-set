@@ -140,10 +140,39 @@ the checks that run on the draft; do not mark it ready to trigger the deferred
 jobs. `$do-pr` owns that transition after review and fixes, followed by full CI
 and merge. A draft does not replace the full local gate before PR creation.
 
-The body restates the slice, lists each acceptance criterion with its verified result, and references the ticket.
+Write the PR body with exactly these three sections, in the glossary's words:
 
-✓ **Done when:** local CI passed, the PR exists as a draft and names the ticket,
-and its applicable draft checks passed. Full remote CI belongs to `$do-pr`.
+```markdown
+## Summary
+
+<what the slice does, in 1–3 lines. Add a call tree, file tree, component tree or
+diff sketch only when the change has structure worth showing.>
+
+Ticket: <path to the ticket file>
+
+## Evidence
+
+- **Before:** <failing test run, output, or screenshot>
+  **After:** <passing test run, output, or screenshot>
+- <each acceptance criterion> — <the check you ran in step 5, and its result>
+
+## Merge danger
+
+**Door:** <one-way or two-way>
+**Blast radius:** <one word>
+
+<optional: what could break, and for whom>
+```
+
+Rules for the sections:
+
+1. Evidence: name the exact test that failed before and passes after, with its command, or show the output. Add a screenshot when the change is visual and you have one.
+2. Door: write `two-way` when a revert and redeploy undo the change completely. Write `one-way` for a migration that drops or rewrites data, a message or email already sent, a side effect in an external system, or a contract other code now depends on.
+3. Blast radius: name who or what breaks if it goes wrong (one screen, one app, every tenant, payroll). `$do-pr` reads this section and may only raise its risk tier from it.
+
+✓ **Done when:** local CI passed, the PR exists as a draft, names the ticket and
+has all three body sections, and its applicable draft checks passed. Full remote
+CI belongs to `$do-pr`.
 
 ### 7. Close the loop in the tracker
 

@@ -96,7 +96,7 @@
     "improve-codebase-architecture": "user-invocable-only",
     "skill-creator": "user-invocable-only",
     "to-user-docs": "user-invocable-only",
-    "writing-for-agents": "user-invocable-only",
+    "writing-for-agents": "name-only",
     "issue-loop": "user-invocable-only",
     "teach": "user-invocable-only"
   },

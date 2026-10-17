@@ -74,6 +74,12 @@ higher one.
 | **Medium** | Frontend form or UI change, API DTO or validation change, a new non-privileged endpoint, dependency bumps. |
 | **High** | Auth or JWT, multi-tenant isolation (RLS, org scoping), payments, legal or immutable documents, PII (TFN, passport, bank), DB migrations, background jobs, file upload or storage. |
 
+Then read the PR body's `## Merge danger` section, if it has one:
+
+1. `Door: one-way` → the tier is High.
+2. A blast radius wider than one screen or one endpoint → the tier is at least Medium.
+3. The section only raises the tier. Never lower the tier from the diff because of it: the author's call is a claim, not proof.
+
 State the tier explicitly before continuing.
 
 ## Step 2 — Resolve, trace and scope

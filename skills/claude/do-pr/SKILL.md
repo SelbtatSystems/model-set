@@ -48,6 +48,8 @@ Classify before running anything; the tier sets how deep every later layer goes.
 - **Medium** — frontend form/UI change, API DTO or validation change, a new non-privileged endpoint, dependency bumps.
 - **High** — auth/JWT, multi-tenant isolation (RLS / org scoping), payments, legal or immutable documents, PII (TFN/passport/bank), DB migrations, background jobs, file upload/storage.
 
+Then read the PR body's `## Merge danger` (do-issue writes it). A **one-way door** makes the tier High; a blast radius wider than one screen or one endpoint makes it at least Medium. It only ever raises the tier you set from the diff, never lowers it — the author's call is a claim, not proof.
+
 ## The layers — cheapest first
 
 Run in order. Each layer's completion criterion must hold before the next. Depth scales with the risk tier.

@@ -60,7 +60,9 @@ Show counts and a one-line summary per issue. Let the maintainer pick.
 
 ## Triage a specific issue
 
-1. **Gather context.** Read the full issue (body, comments, labels, reporter, dates). Parse any prior triage notes so you don't re-ask resolved questions. Explore the codebase using the project's domain glossary, respecting ADRs in the area. Surface any prior rejection that resembles this issue: read `.out-of-scope/*.md` if the project keeps one, otherwise grep closed/archived issues for `wontfix` — that is where most projects keep the reasoning.
+1. **Gather context.** Read the full issue (body, comments, labels, reporter, dates). Parse any prior triage notes so you don't re-ask resolved questions. Explore the codebase using the project's domain glossary, respecting ADRs in the area. Then run two checks:
+   1. Redundancy: search for an existing implementation of the requested behaviour by domain concept, not just the request's wording. Also search for a merged PR or commit that names this ticket. Report where you looked. A hit is an *already implemented* outcome (step 5).
+   2. Prior rejection: surface any earlier rejection that resembles this issue. Read `.out-of-scope/*.md` if the project keeps one; otherwise grep closed/archived issues for `wontfix`.
 
 2. **Recommend.** Tell the maintainer your category and state recommendation with reasoning, plus a brief codebase summary relevant to the issue. Wait for direction.
 
@@ -69,6 +71,10 @@ Show counts and a one-line summary per issue. Let the maintainer pick.
 4. **Grill (if needed).** If the issue needs fleshing out, run a `$grill-with-docs` session.
 
 5. **Apply the outcome:**
+   - Already implemented (step 1's redundancy hit):
+     1. A merged PR built this ticket: set it `done` and add a dated `## Comments` line linking the PR.
+     2. The behaviour exists elsewhere: close it `wontfix` and point to where it lives.
+     3. In both cases, write nothing to `.out-of-scope/`. It is not a rejection.
    - `ready-for-agent` — post an agent brief comment ([AGENT-BRIEF.md](AGENT-BRIEF.md)).
    - `ready-for-human` — same structure as an agent brief, but note why it can't be delegated (judgment calls, external access, design decisions, manual testing).
    - `needs-info` — post triage notes (template below).

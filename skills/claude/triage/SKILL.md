@@ -1,6 +1,8 @@
 ---
 name: triage
 description: Triage issues through a state machine driven by triage roles. Use when user wants to create an issue, triage issues, review incoming bugs or feature requests, prepare issues for an AFK agent, or manage issue workflow.
+metadata:
+  upstream: mattpocock/skills@d80fa0f skills/engineering/triage
 ---
 
 # Triage
@@ -60,18 +62,21 @@ Show counts and a one-line summary per issue. Let the maintainer pick.
 
 ## Triage a specific issue
 
-1. **Gather context.** Read the full issue (body, comments, labels, reporter, dates). Parse any prior triage notes so you don't re-ask resolved questions. Explore the codebase using the project's domain glossary, respecting ADRs in the area. Surface any prior rejection that resembles this issue: read `.out-of-scope/*.md` if the project keeps one, otherwise grep closed/archived issues for `wontfix` — that is where most projects keep the reasoning.
+1. **Gather context.** Read the full issue (body, comments, labels, reporter, dates). Parse any prior triage notes so you don't re-ask resolved questions. Explore the codebase using the project's domain glossary, respecting ADRs in the area. Then run two checks:
+   - **Redundancy** — search for an existing implementation of the requested behaviour by domain concept, not just the request's wording, and for a merged PR or commit that names this ticket. Report where you looked. A hit is an *already implemented* outcome (step 5).
+   - **Prior rejection** — surface any earlier rejection that resembles this issue: read `.out-of-scope/*.md` if the project keeps one, otherwise grep closed/archived issues for `wontfix` — that is where most projects keep the reasoning.
 
 2. **Recommend.** Tell the maintainer your category and state recommendation with reasoning, plus a brief codebase summary relevant to the issue. Wait for direction.
 
 3. **Reproduce (bugs only).** Before any grilling, attempt reproduction: read the reporter's steps, trace the relevant code, run tests or commands. Report what happened — successful repro with code path, failed repro, or insufficient detail (a strong `needs-info` signal). A confirmed repro makes a much stronger agent brief.
 
-4. **Grill (if needed).** If the issue needs fleshing out, run a `/grill-with-docs` session.
+4. **Grill (if needed).** If the issue needs fleshing out, call the Skill tool twice, for "grilling" and "domain-modeling", and grill it into shape a round of questions at a time, sharpening domain terms and updating `CONTEXT.md`/ADRs inline as decisions land.
 
 5. **Apply the outcome:**
    - `ready-for-agent` — post an agent brief comment ([AGENT-BRIEF.md](AGENT-BRIEF.md)).
    - `ready-for-human` — same structure as an agent brief, but note why it can't be delegated (judgment calls, external access, design decisions, manual testing).
    - `needs-info` — post triage notes (template below).
+   - **Already implemented** (step 1's redundancy hit) — if a merged PR built this very ticket, set it `done` with a dated `## Comments` line linking the PR. If the behaviour exists elsewhere, close it `wontfix`, pointing to where it lives. Neither is a rejection, so neither goes to `.out-of-scope/`.
    - `wontfix` (bug) — polite explanation, then close.
    - `wontfix` (enhancement) — record the reasoning where this project already keeps closure records, then close.
      **Follow the project's own convention; do not introduce a second one.** If the tracker has no

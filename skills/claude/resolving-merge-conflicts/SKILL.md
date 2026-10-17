@@ -1,6 +1,8 @@
 ---
 name: resolving-merge-conflicts
 description: "Use when you need to resolve an in-progress git merge/rebase conflict."
+metadata:
+  upstream: mattpocock/skills@81ddacb skills/engineering/resolving-merge-conflicts
 ---
 
 1. **See the current state** of the merge/rebase. Check git history, and the conflicting files.

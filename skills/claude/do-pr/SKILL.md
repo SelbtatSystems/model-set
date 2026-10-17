@@ -1,6 +1,6 @@
 ---
 name: do-pr
-description: Merge a pull request without shipping a regression — risk-tier the change, run layered review (code-review or review → security-review → verify), patch every correctness and high/critical security finding, gate on green build + tests + CI, then merge. Runs interactively or in an autonomous merge loop. Use when the user wants to merge a PR, asks whether a PR is safe or ready to merge, or wants a senior-style pre-merge check of the current branch or a GitHub PR by number.
+description: Merge a pull request without shipping a regression — risk-tier the change, run layered review (code-review bug hunt + two-axis-review → security-review → runtime verify), patch every correctness and high/critical security finding, gate on green build + tests + CI, then merge. Runs interactively or in an autonomous merge loop. Use when the user wants to merge a PR, asks whether a PR is safe or ready to merge, or wants a senior-style pre-merge check of the current branch or a GitHub PR by number.
 ---
 
 # Do PR
@@ -9,7 +9,7 @@ Take a pull request from open to merged without shipping a regression. Inputs: a
 
 The organizing lever is **risk tier** — cheap checks run on every PR, expensive ones scale with risk. One **gate** is absolute: no PR merges while an unpatched high/critical security finding lives in the diff. The agent patches those, not the user.
 
-This skill orchestrates the focused review skills (`/code-review`, `/review`, `/security-review`, `/verify`, `/simplify`) in cheapest-first order. Invoke each at the step that calls for it.
+This skill orchestrates the focused review skills — `code-review` (Claude Code's built-in bug hunt), `two-axis-review`, `security-review` and, optionally, `simplify` — in cheapest-first order. Call each with the Skill tool at the step that calls for it.
 
 ## Modes
 
@@ -19,71 +19,26 @@ This skill orchestrates the focused review skills (`/code-review`, `/review`, `/
   - `<<<MERGE_BLOCKED #N reason>>>` — a gate failed; PR left open, reason commented on the PR.
   - `<<<NO_OPEN_PR>>>` — no PR to act on.
 
-  **Run every layer to the end in one go.** No layer's output is the deliverable, and no sub-skill
-  you invoke (`/security-review` especially) ends the run when it returns — you resume at the next
-  layer. Do not pause to report progress, do not stop because checks are still running (wait on
-  them: `gh pr checks <#> --watch --interval 30` — never the default interval, see *CI + merge*),
-  and do not end a turn without a sentinel. Stopping early is
-  indistinguishable from failing, so the whole run is discarded and repeated at full cost.
+### Autonomous runs: one turn, every layer, one sentinel
 
-  **Delegate the report-producing layers to subagents.** `/review`, `/code-review`,
-  `/security-review` and `/verify` are each built to *finish* with a report, and that terminal
-  framing is what ends this run when you invoke them inline — prose reminders have twice failed to
-  prevent it. Run each in a subagent instead, so "produce the report and stop" lands on the
-  subagent and the findings come back to you as a result to act on. Observed 2026-08-03 in the
-  admin loop: one merge log is 54 lines of code review of PR #826, the next is 9 lines of security
-  review of PR #834 — both immaculate, both ending mid-pipeline with no sentinel and no merge, each
-  discarding a full review.
+The runner starts you with `claude --print`: single-shot. Your final message ends the process, and every Monitor, background Bash task, wake-on-event and still-running subagent dies with it. There is no next turn to wake into. Stopping early is indistinguishable from failing: the whole run is discarded and repeated at full cost.
 
-  The delegation only works if the hand-back is explicit, so tell every such subagent, in its prompt:
+- **Run every layer to the end in one go.** No layer's output is the deliverable. Do not pause to report progress, and do not end a turn without a sentinel.
+- **Wait for work in flight, inside your own turn.** CI, a backgrounded suite, a rebuilding container: wait, read the result, then merge or block. When a wait outlives one Bash call, make the call again — never hand it to a Monitor, a background task or the end of your turn.
+- **Write a sentinel only as your verdict** — on its own line, as the last thing you output. Never narrate one you are not emitting.
+- **Leave the working tree clean.** Before any sentinel, `git status --porcelain` must be empty: commit and push what belongs to the PR, revert what does not. The loop refuses to sync a dirty worktree at the start of its next cycle.
 
-  - **It is a reporter, not the decision-maker.** Its job is to find and evidence; yours is to
-    triage, patch, gate and merge. It returns findings — it never decides the merge.
-  - **It must not act on the PR.** No `gh pr merge`, no `gh pr comment`, no pushing, no editing the
-    ticket. If it needs to change a file to prove a finding, it says so and reverts.
-  - **It must never write a sentinel.** `<<<MERGED …>>>`, `<<<MERGE_BLOCKED …>>>` and
-    `<<<NO_OPEN_PR>>>` are yours alone. The runner greps the whole log line-anchored, so a sentinel
-    quoted inside a subagent's report is read as *your* verdict — a stray `MERGE_BLOCKED` in a
-    review would stop the loop on a healthy PR.
-  - **It returns structured findings**, each with file, line, severity and the concrete failure —
-    not a narrative you have to re-read to act on.
-  - **It is told the absolute path of the repo/worktree, and to `cd` there as its first action.**
-    A subagent inherits the *session's* working directory, not yours — so `cd`-ing yourself does
-    nothing for the agents you spawn. When the session was started from a directory that is not a
-    git repo (a folder holding several worktrees, say), `/security-review` and `/code-review`
-    refuse to launch there and `EnterWorktree` refuses too. The subagent then falls back to
-    reviewing commits by hand, which looks like a hang rather than an error. Observed 2026-08-18 on
-    PR #1146: one security subagent burned ~3.5 h and ~101k tokens that way, on a review a second
-    agent had already completed. Put the path in the prompt — `Work in /abs/path/to/worktree; cd
-    there first` — every time, for every delegated layer.
+**Delegate the report-producing layers to subagents.** `two-axis-review` and `security-review` are built to *finish* with a report, and invoked inline that framing ends this run. Run each in a subagent so "produce the report and stop" lands on the subagent and the findings come back to you as input. (The built-in `code-review` already runs forked and returns its findings to you; call it directly.) Tell every such subagent, in its prompt:
 
-  When a subagent returns, you are mid-pipeline by definition. Say which layer just closed and which
-  is next before doing anything else; that single line is what makes stopping here feel as wrong as
-  it is. A returned report is an input, never an ending.
+- **It is a reporter, not the decision-maker.** It finds and evidences; you triage, patch, gate and merge.
+- **It must not act on the PR.** No `gh pr merge`, no `gh pr comment`, no pushing, no editing the ticket. If it must change a file to prove a finding, it says so and reverts.
+- **It must never write a sentinel.** The runner greps the whole log line-anchored, so a sentinel quoted inside a report is read as *your* verdict.
+- **It returns structured findings**, each with file, line, severity and the concrete failure.
+- **Its first action is `cd` to the absolute repo/worktree path you give it.** A subagent inherits the session's working directory, not yours; from a non-repo directory the review skills refuse to launch and the subagent silently falls back to reviewing by hand.
 
-  **Never end the run while work is in flight** — a CI job, a backgrounded suite, a rebuilding
-  container. "I'll check back once CI completes and merge if it's green" is a failed run: nothing
-  checks back. Wait, read the result, then merge or block. And never *narrate* a sentinel you are
-  not emitting ("…otherwise report `<<<MERGE_BLOCKED …>>>`") — write a sentinel only when it is
-  your verdict, on its own line, as the last thing you output.
+When a subagent returns, you are mid-pipeline by definition. Say which layer just closed and which is next before doing anything else. A returned report is an input, never an ending.
 
-  **Arming a background watcher and ending the turn is the same failure — and it is the one that
-  keeps happening.** The runner spawns you with `claude --print`: single-shot. Your final message
-  ends the process, and any Monitor, background Bash task or wake-on-event you armed dies with it.
-  There is no next turn to wake into. That escape hatch is real in an interactive session and does
-  not exist here. Twice on 2026-08-04 a merge agent hit the Bash timeout on `gh run watch`, armed a
-  Monitor, wrote "the monitor will wake me when it reaches a terminal state" and ended the turn —
-  PR #849 ($14.18) and PR #850 ($11.36), each burning a full cycle before a retry merged the
-  already-green PR in seconds. **When a wait outlives one Bash call, make the call again.** Never
-  hand the waiting to anything outside your own turn.
-
-  **Leave the working tree clean.** This skill edits files — it patches findings, corrects docs,
-  merges base in — and an autonomous loop re-syncs its worktree at the *start* of the next cycle,
-  so anything left uncommitted stops that loop outright with "working tree has uncommitted changes
-  — refusing to touch it". Before emitting any sentinel, `git status --porcelain` must be empty:
-  commit and push what belongs to the PR, revert what does not. This is not housekeeping — a
-  one-line comment edit left behind while reviewing PR #834 is what took the admin loop down, and
-  salvage only runs at cycle *end*, so it cannot rescue a tree that is already dirty at startup.
+The runs behind these rules: [references/incidents.md](references/incidents.md).
 
 ## Risk tier — set this first
 
@@ -107,36 +62,29 @@ Run in order. Each layer's completion criterion must hold before the next. Depth
 
 **Done:** target PR resolved + checked out; ticket contract + owning context read; diff confirmed in-scope, or blocked.
 
-### 2. Code review
+### 2. Code review — two reviews, two questions
 
-- A reviewable GitHub PR → `/review <PR#>`.
-- Working diff with no PR yet → `/code-review` at effort **medium** (low risk), **high** (medium risk), or **max** (high risk).
+Run both. They answer different questions, so neither replaces the other:
 
-Autonomous runs delegate this to a subagent and act on what it returns — see *Modes*. Inline, the
-review's own "report and finish" framing ends the whole run here.
+- **Bug hunt** — call the Skill tool with "code-review" and args `<effort> <PR#>`. Effort by tier: **medium** (low risk), **high** (medium risk), **max** (high risk). Never pass `--comment`, `--fix` or `ultra`: the findings come back to you, the PR stays untouched, and `ultra` is a billed cloud run only the user starts.
+- **Standards + Spec** — call the Skill tool with "two-axis-review": fixed point = the merge-base with the PR's base branch, spec = the ticket path from layer 1. Autonomous runs delegate this to a subagent — see *Modes*.
 
-**You** triage every correctness finding the review returns — fix it on the branch, or dismiss it with a one-line reason. The subagent only reports; patching is yours. On low/medium-risk diffs, optionally run `/simplify` for quality-only cleanup (it does not hunt bugs).
+**You** triage every finding both reviews return — fix it on the branch, or dismiss it with a one-line reason. On low/medium-risk diffs, optionally call the Skill tool with "simplify" for quality-only cleanup (it does not hunt bugs).
 
-**Done:** every correctness finding fixed or explicitly dismissed.
+**Done:** every finding from both reviews fixed or explicitly dismissed.
 
 ### 3. Security gate — blocking
 
-Run `/security-review` on the branch — autonomous: in a subagent, see *Modes*. Split findings by
-severity:
+Call the Skill tool with "security-review" on the branch — autonomous: in a subagent, see *Modes*. Split findings by severity:
 
-- **High/critical** — **you** (never the reporting subagent) **patch each on the PR branch, push, and re-run `/security-review`** — a fresh subagent — until none remain (the push lets CI re-validate). Cannot safely patch (ambiguous or large) → interactive: surface; autonomous: `<<<MERGE_BLOCKED #N security:<finding>>>`.
+- **High/critical** — **you** (never the reporting subagent) **patch each on the PR branch, push, and re-run security-review** — a fresh subagent — until none remain (the push lets CI re-validate). Cannot safely patch (ambiguous or large) → interactive: surface; autonomous: `<<<MERGE_BLOCKED #N security:<finding>>>`.
 - **Medium/low** — not blockers. Append each to the owning context's `SECURITY-findings.md` (the append-only log beside its `SECURITY.md`, never `SECURITY.md` itself) as a deferred finding to be fixed later — format + file resolution in [`references/risk-playbooks.md`](references/risk-playbooks.md). Then continue.
 
 High-risk tiers (auth, multi-tenant, PII, legal/immutable docs, file upload) → also run the matching hand-checks in [`references/risk-playbooks.md`](references/risk-playbooks.md) on top of the automated review.
 
 **Done:** zero unresolved high/critical findings; every medium/low recorded in the owning `SECURITY-findings.md`.
 
-> **`/security-review` returning does NOT end this run.** It is one layer of `do-pr`, not the task.
-> Its report is an input to the merge decision, never the deliverable — do not summarise it and stop.
-> The moment it returns, continue to layer 4 and keep going through the CI gate and the merge. In an
-> autonomous run the only acceptable endings are `<<<MERGED #N>>>`, `<<<MERGE_BLOCKED #N reason>>>`
-> or `<<<NO_OPEN_PR>>>`; a security summary with no sentinel is a failed run and gets retried from
-> scratch at full cost. This is the most common way this workflow goes wrong.
+> **security-review returning does NOT end this run.** Its report is an input to the merge decision, never the deliverable — do not summarise it and stop. Continue to layer 4 and keep going through the CI gate and the merge. This is the most common way this workflow goes wrong.
 
 ### 4. Static checks
 
@@ -152,7 +100,7 @@ Run tests **against the Docker stack, never a dev server** — rebuild + restart
 
 ### 6. Runtime verify
 
-`/verify` — boot the affected service(s) and exercise the real path: happy path + one failure path + one edge case. Watch logs for DI / module-wiring / migration / console errors a green build hides (NestJS provider/controller wiring especially). Autonomous: in a subagent, see *Modes* — this is the last layer that produces a report, and the one most likely to feel like an ending when it is not.
+Boot the affected service(s) and exercise the real path yourself: happy path + one failure path + one edge case — `agent-browser` for UI, a request or query for API and DB. Watch logs for DI / module-wiring / migration / console errors a green build hides (NestJS provider/controller wiring especially). If you hand the browser part to a subagent, the reporter rules in *Modes* apply — and its report is the last one, the one most likely to feel like an ending when it is not.
 
 High risk → run the domain hand-checks in [`references/risk-playbooks.md`](references/risk-playbooks.md): cross-tenant access, auth boundaries, migration on clean **and** existing DB, API contract front↔back, failure/observability paths.
 
@@ -183,13 +131,9 @@ gh run watch <run-id> --interval 30 --exit-status 2>&1 | tail -5; echo "RC=$?"
 gh run view <run-id> --json status,conclusion --jq '{status,conclusion}'
 ```
 
-**Always pass `--interval 30`.** `gh run watch` defaults to a 3s refresh, and each refresh is a REST
-call against the 5000/hour core quota shared by every loop on this machine. One default-interval
-watch spends ~390 calls; at `--interval 30` it spends ~40. Four loops watching CI on the default
-exhausted the whole hourly quota on 2026-08-16 and stalled every pipeline. Same for
-`gh pr checks <#> --watch --interval 30` (its default is 10s).
+**Always pass `--interval 30`.** Each refresh is a REST call against the 5000/hour core quota that every loop on this machine shares: a default-interval watch spends ~390 calls, one at `--interval 30` ~40. Same for `gh pr checks <#> --watch --interval 30`.
 
-Budget about four such calls (~40 min) before treating CI as genuinely stuck. Do **not** replace the repeated call with a Monitor, a background task, or ending your turn — see *Never end the run while work is in flight* above. CI never goes green within that budget → autonomous: `<<<MERGE_BLOCKED #N ci-timeout>>>`.
+Budget about four such calls (~40 min) before treating CI as genuinely stuck. Do **not** replace the repeated call with a Monitor, a background task, or ending your turn. CI never goes green within that budget → autonomous: `<<<MERGE_BLOCKED #N ci-timeout>>>`.
 
 State the merge decision plainly: requirement met · diff scoped · build + tests + CI green · runtime path exercised · security gate clean · DB/migration risk handled. Any gate above still red → do not merge (autonomous: `<<<MERGE_BLOCKED #N reason>>>`).
 

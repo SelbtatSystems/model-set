@@ -7,32 +7,16 @@ description: Execute one ready-for-agent ticket end-to-end to done. Use when the
 
 Build one `ready-for-agent` ticket to done — the executor end of `to-prd` → `to-issues` → `triage`. **One ticket per run**, the same lifecycle every time. End the run only at step 7 *done* or an explicit stop condition (non-AFK ticket, open blocker, `<<<NO_OPEN_ISSUES>>>`, or a decision only a person can make — which you hand back per step 2's *Stopping on a decision*) — a failed gate means fix and re-run, not stop.
 
-> **Never end the run while work is in flight.** A backgrounded test run, a rebuilding
-> container, a CI job, a delegated sub-agent — none of these is a place to stop and report
-> status. Wait for it, read its result, and carry on to the end of the lifecycle. "I'll push
-> once the suite reports" is a failed run: the work is uncommitted, no PR exists, and in an
-> autonomous loop the whole ticket is redone from scratch at full cost — while the dirty tree
-> you left behind stops the loop's next sync entirely. If a job genuinely cannot be waited on,
-> that is a blocker to state as one, not a reason to end mid-lifecycle. (Observed twice on
-> 2026-08-02: two agents spent $18 between them and shipped nothing.)
+## Never end with work in flight
 
-> **Arming a background watcher, or delegating and ending the turn, is the same failure — and it
-> is the one that keeps happening.** The runner spawns you with `claude --print`: single-shot.
-> Your final message ends the process, and any Monitor, background Bash task, wake-on-event or
-> still-running sub-agent dies with it. There is no next turn to wake into. That escape hatch is
-> real in an interactive session and does not exist here. On 2026-08-05 a build agent finished
-> map-evolution ticket 09 — 816 verified lines, backend e2e 14/14, backend units 1887/1887 — then
-> wrote "the only outstanding item is the browser verification agent; I'll commit and PR as soon
-> as it reports" and ended the turn. $37.84 spent, nothing committed, no PR, and the loop's ledger
-> held a branch that did not exist on the remote. **When a wait outlives one Bash call, make the
-> call again.** Never hand the waiting to anything outside your own turn.
+The autonomous runner starts you with `claude --print`: single-shot. Your final message ends the process, and every background Bash task, Monitor, wake-on-event and still-running subagent dies with it. There is no next turn to wake into.
 
-> **Commit as soon as the gate is green — never hold a verified slice uncommitted while waiting on
-> anything.** That one habit turns every failure above into a recoverable one. What made ticket 09
-> worse than a lost turn was its migration: already applied to the worktree's database, but absent
-> from the base branch once the abandoned unit branch was left behind — an *orphaned* migration,
-> which `db:check` fails on. The loop could then not restart to merge the very PR that would have
-> cleared it, and a human had to break the deadlock by hand.
+- **Wait for everything you start** — a test run, a rebuilding container, a CI job, a subagent. Read its result and carry on to the end of the lifecycle. "I'll push once the suite reports" leaves nothing committed and no PR, and the loop redoes the whole ticket at full cost.
+- **When a wait outlives one Bash call, make the call again.** Never hand the waiting to a Monitor, a background task, or the end of your turn.
+- **Commit as soon as the gate is green.** A committed slice survives any later failure; a verified slice held uncommitted can leave an orphaned migration that blocks the loop until a person repairs it.
+- **Leave the tree clean.** A dirty tree stops the loop's next sync.
+
+If a job genuinely cannot be waited on, state it as a blocker. The runs behind these rules: [references/incidents.md](references/incidents.md).
 
 The tracker spec — where tickets live, the issue file format, the find-work command, and the triage roles — is defined in `docs/agents/issue-tracker.md` + `docs/agents/triage-labels.md` (reached via the repo's `## Agent skills` block). Read them; this skill does not restate them. If that config is missing, stop and ask the user where the tracker config lives — do not guess a tracker layout.
 
@@ -44,13 +28,15 @@ If the user named a ticket, use it. Otherwise grep the `ready-for-agent` queue a
 
 Stop and surface to the user — build nothing — if the ticket is not AFK (`**Triage:** ready-for-human`) or a blocker is still open. If **nothing qualifies** (no `ready-for-agent` ticket with all blockers satisfied), print exactly `<<<NO_OPEN_ISSUES>>>` and stop — nothing else (an autonomous merge loop reads this token to know the backlog is empty).
 
-✓ **Done when:** one AFK issue file is chosen and every blocker it names is `done`.
+State the chosen ticket's number and title before going on.
+
+✓ **Done when:** one AFK issue file is chosen, its number and title are stated, and every blocker it names is `done`.
 
 ### 2. Read the contract
 
-The ticket's **Agent Brief** (or its *What to build* + *Acceptance criteria*) is **the contract** — the spec you build against. Read it in full, plus the parent PRD for intent. Then load the owning context per `docs/agents/domain.md`: the `**App:**`'s `CONTEXT.md` glossary and the ADRs in that area. Work in glossary vocabulary. If the contract contradicts an ADR, stop and surface it instead of overriding.
+The ticket's **Agent Brief** (or its *What to build* + *Acceptance criteria*) is **the contract** — the spec you build against. Read it in full, plus the parent PRD for intent and for its *Testing Decisions* (the seams step 4 tests at). Then load the owning context per `docs/agents/domain.md`: the `**App:**`'s `CONTEXT.md` glossary and the ADRs in that area. Work in glossary vocabulary. If the contract contradicts an ADR, stop and surface it instead of overriding.
 
-**Stopping on a decision.** Sometimes the build cannot go on without a person: the contract contradicts an ADR, the code cannot hold what the brief asks for without a scope or product call, or a provider's documentation disproves the brief's premise. When that happens, hand the ticket back before you end the run. Otherwise it stays `ready-for-agent`, the autonomous issue-loop picks the same lowest-numbered ticket every cycle, and it stops after `MAX_FAILS` identical failures while tickets it could build wait behind it. This happened on 2026-09-26: pay-adjustments ticket 18 was retried three times, and ticket 22 never got a turn. To hand it back:
+**Stopping on a decision.** Sometimes the build cannot go on without a person: the contract contradicts an ADR, the code cannot hold what the brief asks for without a scope or product call, or a provider's documentation disproves the brief's premise. When that happens, hand the ticket back before you end the run. Otherwise it stays `ready-for-agent`, the autonomous issue-loop picks the same lowest-numbered ticket every cycle, and it stops after `MAX_FAILS` identical failures while tickets it could build wait behind it. To hand it back:
 - Append a dated `## Comments` entry with the evidence (file and symbol names, the command you ran and its result, doc links) and the decision as **2–3 lettered options**, with your recommendation first.
 - Flip `**Triage:**` to `ready-for-human` for a product or scope decision, or to `needs-info` when the ticket waits on an outside fact (provider docs, a sandbox result).
 - Leave no stray branch: delete an empty local branch you created; push a branch that has real work as `wip/<slug>` and name it in the comment.
@@ -58,7 +44,7 @@ The ticket's **Agent Brief** (or its *What to build* + *Acceptance criteria*) is
 
 A failed gate, a flaky test, or code that is hard to write is **not** a decision. Fix it.
 
-✓ **Done when:** you can restate the acceptance criteria as a checklist and you know the owning context.
+✓ **Done when:** you can restate the acceptance criteria as a checklist, you know the owning context, and you know the PRD's test seams.
 
 ### 3. Branch
 
@@ -89,7 +75,13 @@ The `ls-remote` comparison is the part that matters: an ancestor check *alone* p
 
 ### 4. Build the tracer bullet
 
-Implement the slice end-to-end through every layer it touches. Delegate to the fitting build skill — `tdd` for a feature, `diagnose` for a `bug`, the stack skills (`nodejs-backend-patterns`, `react-best-practices`, …) for domain work. Hold to the contract's *Out of scope*; do not gold-plate.
+Implement the slice end-to-end through every layer it touches. Hold to the contract's *Out of scope*; do not gold-plate. Load the build skill with the Skill tool — a skill named only in prose does not load:
+
+- **Feature** → call the Skill tool with "tdd". Hand it the PRD's *Testing Decisions* as the pre-agreed seams. If the slice needs a seam the PRD does not name, use the highest existing seam that reaches the behaviour, and name the new seam in the PR body so review can judge it.
+- **Bug** → call the Skill tool with "diagnosing-bugs".
+- **Domain work** → also call the Skill tool for each stack skill the ticket or PRD names (`nodejs-backend-patterns`, `react-best-practices`, …).
+
+Test while you build: after each change, run the affected workspace's typecheck and the one test file you are changing, the same way step 5 runs tests. The full gate runs once, in step 5.
 
 ✓ **Done when:** every acceptance criterion is satisfied by something you built.
 
@@ -106,11 +98,11 @@ If it reports `BEHIND`, sync before running the gate — and re-run the gate aft
 
 - **Branch not pushed yet** → `git rebase origin/main` (clean history, safe while the branch is local-only).
 - **Branch already pushed** → `git merge origin/main`. Do **not** rebase a pushed branch: it needs a force-push, which is hook-blocked.
-- Conflicts → resolve via `resolving-merge-conflicts`; never `--abort` back to the stale base.
+- Conflicts → call the Skill tool with "resolving-merge-conflicts"; never `--abort` back to the stale base.
 
 After syncing, rebuild and restart the affected Docker services before testing — the containers are still serving pre-merge code.
 
-Discover the repo's quality gate first (`cat package.json`, `ls .github/workflows`), then run it — typecheck · lint · test · build. Check **each acceptance criterion by executing the actual check** (`verify`, `agent-browser`, `design-review`, a query, a request) — never by inspecting code or diffs. A criterion you cannot execute stays unchecked: report it as such, do not claim it.
+Discover the repo's quality gate first (`cat package.json`, `ls .github/workflows`), then run it — typecheck · lint · test · build. Check **each acceptance criterion by executing the actual check** (`agent-browser`, `design-review`, a query, a request, a test run) — never by inspecting code or diffs. A criterion you cannot execute stays unchecked: report it as such, do not claim it.
 
 If this ticket adds a DB migration, apply it to **the current worktree's own database** before testing — each worktree runs a separate DB volume, so tests and runtime exercise that stack, not main's.
 

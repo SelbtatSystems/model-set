@@ -31,7 +31,7 @@ You are generating a Bash wizard that guides a human through actions only they c
 
 3. Copy `assets/template.sh` to the requested output path.
    - Replace the example stage with one focused `stage` block per manual task.
-   - Set `TOTAL_STAGES` and `TOTAL_MINUTES` to realistic values.
+   - Set `TOTAL_STAGES` to the number of `stage` blocks.
    - Open the relevant URL before asking the human to copy a value.
    - Use `write_env` for local values, `set_secret` only for CI secrets, and `set_var` only for public CI configuration.
 
@@ -55,6 +55,5 @@ Before creating the script, provide:
 Stages:
 1. <stage> — captures <values> → writes <destinations>
 
-Estimated time: <minutes>
 Output path: <path>
 ```

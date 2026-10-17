@@ -87,10 +87,10 @@
     "sogni": "user-invocable-only",
     "sogni-creative-agent:loop-maker": "user-invocable-only",
     "sogni-creative-agent:sogni-creative-agent": "user-invocable-only",
-    "tdd": "user-invocable-only",
+    "tdd": "name-only",
     "to-plan": "user-invocable-only",
     "writing-guidelines": "user-invocable-only",
-    "codebase-design": "user-invocable-only",
+    "codebase-design": "name-only",
     "composition-patterns": "user-invocable-only",
     "frontend-design": "user-invocable-only",
     "improve-codebase-architecture": "user-invocable-only",
@@ -98,8 +98,7 @@
     "to-user-docs": "user-invocable-only",
     "writing-for-agents": "user-invocable-only",
     "issue-loop": "user-invocable-only",
-    "teach": "user-invocable-only",
-    "zoom-out": "user-invocable-only"
+    "teach": "user-invocable-only"
   },
   "disableArtifact": true,
   "statusLine": {

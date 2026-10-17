@@ -44,11 +44,13 @@ If the user named a ticket, use it. Otherwise grep the `ready-for-agent` queue a
 
 Stop and surface to the user — build nothing — if the ticket is not AFK (`**Triage:** ready-for-human`) or a blocker is still open. If **nothing qualifies** (no `ready-for-agent` ticket with all blockers satisfied), print exactly `<<<NO_OPEN_ISSUES>>>` and stop — nothing else (an autonomous merge loop reads this token to know the backlog is empty).
 
-✓ **Done when:** one AFK issue file is chosen and every blocker it names is `done`.
+State the chosen ticket's number and title before going on.
+
+✓ **Done when:** one AFK issue file is chosen, its number and title are stated, and every blocker it names is `done`.
 
 ### 2. Read the contract
 
-The ticket's **Agent Brief** (or its *What to build* + *Acceptance criteria*) is **the contract** — the spec you build against. Read it in full, plus the parent PRD for intent. Then load the owning context per `docs/agents/domain.md`: the `**App:**`'s `CONTEXT.md` glossary and the ADRs in that area. Work in glossary vocabulary. If the contract contradicts an ADR, stop and surface it instead of overriding.
+The ticket's **Agent Brief** (or its *What to build* + *Acceptance criteria*) is **the contract** — the spec you build against. Read it in full, plus the parent PRD for intent and for its *Testing Decisions* (the seams step 4 tests at). Then load the owning context per `docs/agents/domain.md`: the `**App:**`'s `CONTEXT.md` glossary and the ADRs in that area. Work in glossary vocabulary. If the contract contradicts an ADR, stop and surface it instead of overriding.
 
 **Stopping on a decision — hand the ticket back.** Applies when the build needs a person: contract vs ADR conflict, a scope/product call the code forces, or provider docs that disprove the brief. A ticket left `ready-for-agent` is re-picked every loop cycle and stops the loop after `MAX_FAILS` (pay-adjustments 18, 2026-09-26: three identical stops; ticket 22 never ran). Required, in order:
 1. Append a dated `## Comments` entry: evidence (symbols, command + result, doc links) and the decision as 2–3 lettered options, recommendation first.
@@ -58,7 +60,7 @@ The ticket's **Agent Brief** (or its *What to build* + *Acceptance criteria*) is
 
 Not a decision: a failed gate, a flaky test, hard code. Fix those.
 
-✓ **Done when:** you can restate the acceptance criteria as a checklist and you know the owning context.
+✓ **Done when:** you can restate the acceptance criteria as a checklist, you know the owning context, and you know the PRD's test seams.
 
 ### 3. Branch
 
@@ -89,7 +91,13 @@ The `ls-remote` comparison is the part that matters: an ancestor check *alone* p
 
 ### 4. Build the tracer bullet
 
-Implement the slice end-to-end through every layer it touches. Delegate to the fitting build skill — `tdd` for a feature, `diagnose` for a `bug`, the stack skills (`nodejs-backend-patterns`, `react-best-practices`, …) for domain work. Hold to the contract's *Out of scope*; do not gold-plate.
+Implement the slice end-to-end through every layer it touches. Hold to the contract's *Out of scope*; do not gold-plate. Before you write code, read the build skill's file and follow it:
+
+1. Feature: read `skills/tdd/SKILL.md`. The PRD's *Testing Decisions* are the pre-agreed seams. If the slice needs a seam the PRD does not name, use the highest existing seam that reaches the behaviour, and name the new seam in the PR body.
+2. Bug: read `skills/diagnosing-bugs/SKILL.md`.
+3. Domain work: also read `skills/<name>/SKILL.md` for each stack skill the ticket or PRD names (`nodejs-backend-patterns`, `react-best-practices`, …).
+
+Test while you build: after each change, run the affected workspace's typecheck and the one test file you are changing, the same way step 5 runs tests. The full gate runs once, in step 5.
 
 ✓ **Done when:** every acceptance criterion is satisfied by something you built.
 
@@ -106,11 +114,11 @@ If it reports `BEHIND`, sync before running the gate — and re-run the gate aft
 
 - **Branch not pushed yet** → `git rebase origin/main` (clean history, safe while the branch is local-only).
 - **Branch already pushed** → `git merge origin/main`. Do **not** rebase a pushed branch: it needs a force-push, which is hook-blocked.
-- Conflicts → resolve via `resolving-merge-conflicts`; never `--abort` back to the stale base.
+- Conflicts → read `skills/resolving-merge-conflicts/SKILL.md` and follow it; never `--abort` back to the stale base.
 
 After syncing, rebuild and restart the affected Docker services before testing — the containers are still serving pre-merge code.
 
-Discover the repo's quality gate first (`cat package.json`, `ls .github/workflows`), then run it — typecheck · lint · test · build. Check **each acceptance criterion by executing the actual check** (`verify`, `agent-browser`, `design-review`, a query, a request) — never by inspecting code or diffs. A criterion you cannot execute stays unchecked: report it as such, do not claim it.
+Discover the repo's quality gate first (`cat package.json`, `ls .github/workflows`), then run it — typecheck · lint · test · build. Check **each acceptance criterion by executing the actual check** (`agent-browser`, `design-review`, a query, a request, a test run) — never by inspecting code or diffs. A criterion you cannot execute stays unchecked: report it as such, do not claim it.
 
 If this ticket adds a DB migration, apply it to **the current worktree's own database** before testing — each worktree runs a separate DB volume, so tests and runtime exercise that stack, not main's.
 

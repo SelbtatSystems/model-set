@@ -55,6 +55,12 @@ Before writing any code:
 - [ ] List the behaviors to test (not implementation steps)
 - [ ] Get user approval on the plan
 
+Seams agreed earlier count as confirmed:
+
+1. If the spec or PRD you are building has *Testing Decisions*, test at those seams.
+2. If the calling skill names the seams, test at those seams.
+3. In both cases, skip the confirmation and approval items above.
+
 Ask: "What should the public interface look like? Which behaviors are most important to test?"
 
 **You can't test everything.** Confirm with the user exactly which behaviors matter most. Focus testing effort on critical paths and complex logic, not every possible edge case.

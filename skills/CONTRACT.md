@@ -138,3 +138,31 @@ difference is the entire reason the two sets exist.
 
 Never edit anything in `skills/external/` — changes are lost on the next upstream
 sync. Fork it into `claude/` or `codex/` under a new name instead.
+
+---
+
+## Upstream forks
+
+Many `claude/` skills are forks of [mattpocock/skills](https://github.com/mattpocock/skills),
+edited for this setup. Each one records where it came from in its frontmatter:
+
+```yaml
+metadata:
+  upstream: mattpocock/skills@<sha> <path in that repo>
+```
+
+`<sha>` is the upstream commit this copy was last synced with: every upstream change
+up to it was either taken or skipped on purpose. A skill whose port is still pending
+keeps its fork point, so the check below lists everything it is missing.
+
+To see what changed upstream since, in a clone of mattpocock/skills:
+
+```bash
+git log --oneline <sha>..origin/main -- <path>
+```
+
+After a sync, move `<sha>` to the upstream commit you reviewed. Do not take
+upstream's renames that would break this setup: the vault keeps `CONTEXT.md` (upstream
+renamed it `GLOSSARY.md`), and `two-axis-review` keeps its name because a personal
+skill called `code-review` hides Claude Code's built-in `/code-review`. The Codex
+copies are rewrites in the GPT dialect and carry no `upstream` key.

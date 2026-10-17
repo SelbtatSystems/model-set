@@ -232,6 +232,16 @@ demands, with no runtime errors.
    started; a previous green draft run with skipped test jobs is not full CI.
    Require every applicable test/E2E job to run and pass. Jobs excluded because
    their workspace is unaffected may remain skipped.
+   Record the PR head and base commits associated with that run before waiting.
+   Inspect a failed job before retrying. If the failure is transient and both
+   commits are unchanged, use `gh run rerun <run-id> --failed` once; diagnose a
+   repeat instead of retrying until green. This reruns whole failed jobs and
+   their dependants, not individual failed tests. If a fix or base merge changes
+   the code, push it and require fresh applicable checks on the new snapshot.
+   An old run always retries its original snapshot, even when `main` has moved.
+   If the original snapshot cannot be established, do not reuse its successes
+   as evidence for newer code. Follow a repository guard's explicit recovery
+   rule: AgCore's draft-skip guard needs a full rerun to refresh draft outputs.
 4. A shell-call timeout is not a CI result. Repeat the watch within this turn;
    allow about 40 minutes before autonomous mode emits
    `<<<MERGE_BLOCKED #N ci-timeout>>>`. Never merge on pending checks. If new

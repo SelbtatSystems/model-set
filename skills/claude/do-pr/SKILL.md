@@ -172,6 +172,8 @@ A PR that is already ready (a human opened it, or a previous attempt marked it) 
 
 Wait for CI to **complete** — never merge on pending. Require all green, and the branch up to date with base — if behind, **merge base into the branch** (never rebase a pushed PR branch: the force-push it needs is hook-blocked; matters most for migrations and shared files).
 
+**Retry the same snapshot cheaply.** Record the PR head and base commits for the run you are waiting on. Inspect failures first. An unchanged snapshot with a transient failure gets one `gh run rerun <run-id> --failed`: failed jobs and their dependants run again, including every test in those jobs. If it fails again, diagnose it. A fix or a merge from updated base needs a push and fresh applicable checks; retrying an old run cannot test that new code. When you cannot establish the original snapshot, do not carry its successful checks forward. Respect a repository guard's recovery instructions: AgCore's draft-skip guard requires a full rerun to refresh the cached draft state.
+
 **One watch call cannot outlast this repo's CI.** A single Bash call is capped at ~590s; CI here runs 12–14 minutes. So `gh pr checks <#> --watch` (or `gh run watch`) *will* time out on a fresh push, and a timed-out watch is **not a result** — it is a call you have to make again:
 
 ```bash

@@ -168,12 +168,13 @@ metadata:
 up to it was either taken or skipped on purpose. A skill whose port is still pending
 keeps its fork point, so the check below lists everything it is missing.
 
-To see what changed upstream since, in a clone of mattpocock/skills:
+To see what changed upstream since, for every fork or the ones you name:
 
 ```bash
-git log --oneline <sha>..origin/main -- <path>
+scripts/upstream-drift.sh [--summary] [skill ...]
 ```
 
+It keeps the upstream clone in `~/.cache/model-set/upstream/` and fetches it on each run.
 After a sync, move `<sha>` to the upstream commit you reviewed. Do not take
 upstream's renames that would break this setup: the vault keeps `CONTEXT.md` (upstream
 renamed it `GLOSSARY.md`), and `two-axis-review` keeps its name because a personal

@@ -39,6 +39,23 @@ Verify:
 | `--with-obsidian` | Install the Obsidian CLI (off by default — needs a vault) |
 | `--no-sogni` | Skip the Sogni image/video/music skill |
 | `--force` | Replace existing config files instead of skipping them |
+| `--skills-only` | Only link and prune the skill sets and sync the Claude profiles: no installs, config, shell or MCP changes |
+
+### Syncing another host
+
+After you push from one machine, bring another one (the VPS) up to date:
+
+```bash
+git -C ~/model-set push
+ssh vps '~/model-set/scripts/sync-host.sh'
+```
+
+`sync-host.sh` refuses to run while a loop runner is running (`--force` overrides). It keeps the
+host's own uncommitted edits to tracked files (its `settings.json` allow rules and `autoMode`, its
+`config.toml` trust entries) on top of the new commit. An edit that conflicts, or leaves JSON
+invalid, is not forced through: the committed version goes in place, the edit stays in the stash,
+and the script says which `stash@{n}` to merge by hand. Then it relinks the skills with
+`setup.sh --skills-only` and runs the lint.
 
 ### Migrating from the old layout
 
@@ -149,7 +166,11 @@ without those, OpenCode would also read the Claude skill set.
 |---|---|
 | `setup.sh` | Install CLIs, link config and skills, register MCP |
 | `doctor.sh` | Verify an install; non-zero exit on failure |
-| `lint-skills.sh` | Enforce `skills/CONTRACT.md` |
+| `lint-skills.sh` | Enforce `skills/CONTRACT.md`, and fail skill references an agent cannot load |
+| `sync-host.sh` | Fast-forward this host, keep its host-only edits, relink skills |
+| `upstream-drift.sh` | List the upstream commits each forked skill has not taken |
+| `skill-usage.py` | How often each skill loaded, was typed or was refused, per agent |
+| `loop-outcomes.py` | How loop runs ended (merged, blocked, no sentinel) and what they cost |
 | `apply-local.sh` | Apply project-level config to a repo |
 | `migrate-from-symlink.sh` | One-time migration off the old layout |
 | `uninstall.sh` | Remove links and shell block (`--purge-tools` for CLIs) |

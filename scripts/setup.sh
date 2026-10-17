@@ -2,9 +2,12 @@
 # model-set setup — Linux/macOS.
 #
 #   ./scripts/setup.sh [--with-ollama] [--with-obsidian] [--no-sogni] [--force]
+#   ./scripts/setup.sh --skills-only
 #
 # Installs the agent CLIs and tool CLIs, then links this repo's config files and
 # skill sets into place. Idempotent: safe to re-run after `git pull`.
+# --skills-only links and prunes the skill sets and syncs the Claude profiles,
+# nothing else: no installs, no config links, no shell or MCP changes.
 #
 # Design notes live in PLAN.md. The two that matter when reading this script:
 #
@@ -29,6 +32,7 @@ WITH_OLLAMA=false
 WITH_OBSIDIAN=false
 WITH_SOGNI=true
 FORCE=false
+SKILLS_ONLY=false
 # Per-host defaults live in the gitignored .env (e.g. WITH_SOGNI=false on the
 # VPS, which never runs sogni). Command-line flags below still win.
 if [ -f "$ENV_FILE" ] && grep -q '^WITH_SOGNI=false' "$ENV_FILE"; then WITH_SOGNI=false; fi
@@ -39,7 +43,8 @@ for arg in "$@"; do
     --with-obsidian) WITH_OBSIDIAN=true ;;
     --no-sogni)      WITH_SOGNI=false ;;
     --force)         FORCE=true ;;
-    -h|--help)       sed -n '2,8p' "$0"; exit 0 ;;
+    --skills-only)   SKILLS_ONLY=true ;;
+    -h|--help)       sed -n '2,11p' "$0"; exit 0 ;;
     *) echo "setup: unknown option '$arg'" >&2; exit 2 ;;
   esac
 done
@@ -49,6 +54,12 @@ step() { printf '\n%s\n%s\n' "$*" "$(printf '=%.0s' $(seq ${#1}))"; }
 ok()   { printf '  ok    %s\n' "$*"; }
 warn() { printf '  warn  %s\n' "$*"; }
 die()  { printf '  FAIL  %s\n' "$*" >&2; exit 1; }
+
+if $SKILLS_ONLY; then
+  # Read the npm prefix only: section 3 links npm-delivered skills from it.
+  NPM_PREFIX="$(npm prefix -g 2>/dev/null || true)"
+  [ -n "$NPM_PREFIX" ] && [ -w "$NPM_PREFIX" ] || NPM_PREFIX="$HOME/.npm-global"
+else
 
 # ---------------------------------------------------------------------------
 # 0. Prerequisites
@@ -234,6 +245,8 @@ for entry in "${CONFIG_MANIFEST[@]}"; do
 done
 ok "${#CONFIG_MANIFEST[@]} config files linked"
 
+fi  # end of the sections --skills-only skips
+
 # ---------------------------------------------------------------------------
 # 3. Skills
 # ---------------------------------------------------------------------------
@@ -265,8 +278,19 @@ link_skill() {
   local host="$1" name="$2" src="$3"
   local dir="${HOST_SKILL_DIRS[$host]}"
   mkdir -p "$dir"
-  local dest="$dir/$name"
-  [ -L "$dest" ] && rm "$dest"
+  local dest="$dir/$name" current
+  if [ -L "$dest" ]; then
+    current="$(readlink -f "$dest" 2>/dev/null || true)"
+    [ "$current" = "$(readlink -f "$src")" ] && return 0
+    # Replace only a link we own (into this repo) or a dangling one. A link into
+    # another tree belongs to that tree's installer: AgCore's
+    # install-eform-seeker-simulator-skill.sh points eform-seeker-simulator at
+    # its private copy, and replacing it here swapped in a stale public one.
+    case "$current" in
+      "$REPO_DIR"/*|"") rm "$dest" ;;
+      *) warn "$dest -> $current is not ours — left alone"; return 1 ;;
+    esac
+  fi
   if [ -e "$dest" ]; then
     warn "$dest is a real directory (legacy seeded copy) — left alone; run scripts/migrate-from-symlink.sh"
     return 1
@@ -321,6 +345,11 @@ done
 # Extra Claude profiles (CLAUDE_CONFIG_DIR) mirror the primary — see lib/manifest.sh.
 "$SCRIPT_DIR/sync-claude-profiles.sh"
 
+if $SKILLS_ONLY; then
+  ok "--skills-only: skills and profiles done; installs, config, shell and MCP left as they are"
+  exit 0
+fi
+
 # ---------------------------------------------------------------------------
 # 4. Shell environment
 # ---------------------------------------------------------------------------
@@ -362,6 +391,23 @@ fi
 # <<< model-set <<<
 EOF
   ok "added model-set block to $RC"
+fi
+
+# Non-interactive zsh (ssh host 'cmd', cron) reads only ~/.zshenv, not ~/.zshrc:
+# without this, `ssh vps 'claude ...'` cannot find claude.
+if [ "$(basename "${SHELL:-}")" = zsh ]; then
+  if grep -Fq "$MARKER" "$HOME/.zshenv" 2>/dev/null; then
+    ok "PATH block already in ~/.zshenv"
+  else
+    cat >> "$HOME/.zshenv" <<EOF
+
+$MARKER
+typeset -U path PATH
+export PATH="$NPM_BIN:\$HOME/.local/bin:\$PATH"
+# <<< model-set <<<
+EOF
+    ok "added model-set PATH block to ~/.zshenv"
+  fi
 fi
 
 export OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1

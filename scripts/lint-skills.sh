@@ -132,19 +132,117 @@ for dir in "$REPO_DIR"/skills/codex/*/; do
     $WORKLIST || echo "  $name  ($((violations - before)) issue(s))$(is_codex_only "$name" && echo '  [codex-only]')"
   fi
 done
+contract_violations=$violations
+
+# ---------------------------------------------------------------------------
+# Skill references: a skill that tells the agent to load another skill must
+# name one the agent can load. A broken reference fails silently at run time:
+# do-issue named `diagnose` (renamed in June) and a `tdd` that skillOverrides
+# hid from the model, so for 60 days its build step loaded neither.
+# ---------------------------------------------------------------------------
+
+# Claude Code ships these. A personal skill with the same name replaces the
+# built-in: a skill named code-review hid the bug-hunting /code-review.
+# Add a name here when Claude Code bundles a new one (see its `/` list).
+CLAUDE_BUILTINS=(code-review review verify simplify security-review init run loop schedule
+  update-config keybindings-help fewer-permission-prompts claude-api workflow-authoring plugin-authoring)
+# The ones the model may load through the Skill tool. /verify and /review it may not.
+CLAUDE_BUILTINS_CALLABLE=(code-review security-review simplify init)
+
+SETTINGS="$REPO_DIR/global/claude/settings.json"
+mapfile -t HIDDEN < <(jq -r '.skillOverrides // {} | to_entries[]
+  | select(.value == "user-invocable-only" or .value == "off") | "\(.key)=\(.value)"' "$SETTINGS")
+mapfile -t NPM_CLAUDE < <(jq -r '.npmSkills // {} | to_entries[]
+  | select(.value.hosts | index("claude")) | .key' "$MANIFEST")
+
+in_list() { local needle="$1" x; shift; for x in "$@"; do [ "$x" = "$needle" ] && return 0; done; return 1; }
+
+# Hosts that receive <set>/<skill>, per manifest.json (an override wins over the set).
+set_hosts() {
+  jq -r --arg k "$1/$2" --arg s "$1" '(.overrides[$k].hosts // .sets[$s].hosts)[]' "$MANIFEST"
+}
+
+# Directory of the skill linked for <host> under <name>; non-zero when there is none.
+skill_dir_for() {
+  local host="$1" name="$2" set
+  for set in claude codex shared external; do
+    [ -f "$REPO_DIR/skills/$set/$name/SKILL.md" ] || continue
+    set_hosts "$set" "$name" | grep -qx "$host" && { echo "$REPO_DIR/skills/$set/$name"; return 0; }
+  done
+  return 1
+}
+
+frontmatter_has() {
+  awk 'NR == 1 && /^---$/ { f = 1; next } f && /^---$/ { exit } f' "$1" | grep -qE "$2"
+}
+
+check_claude_ref() {
+  local file="$1" line="$2" name="$3" dir hidden
+  hidden="$(printf '%s\n' "${HIDDEN[@]}" | grep -m1 "^$name=" | cut -d= -f2)"
+  if dir="$(skill_dir_for claude "$name")"; then
+    frontmatter_has "$dir/SKILL.md" '^disable-model-invocation:[[:space:]]*true' \
+      && report "$file" "$line" "skill reference" "\"$name\" sets disable-model-invocation: only a person can start it"
+  elif in_list "$name" "${NPM_CLAUDE[@]}" || in_list "$name" "${CLAUDE_BUILTINS_CALLABLE[@]}"; then
+    :
+  elif in_list "$name" "${CLAUDE_BUILTINS[@]}"; then
+    report "$file" "$line" "skill reference" "\"$name\" is a Claude Code built-in the model cannot load"
+    return
+  else
+    report "$file" "$line" "skill reference" "no skill named \"$name\" is linked for Claude"
+    return
+  fi
+  [ -n "$hidden" ] && report "$file" "$line" "skill reference" \
+    "\"$name\" is \"$hidden\" in settings.json skillOverrides: the model cannot see it (use \"name-only\")"
+  return 0
+}
+
+$WORKLIST || { echo ""; echo "Skill references"; }
+
+# Claude: `Call the Skill tool with "x"`, `... twice, for "x" and "y"`.
+for skill_md in "$REPO_DIR"/skills/claude/*/SKILL.md; do
+  while IFS=: read -r lineno text; do
+    while read -r name; do
+      [ -n "$name" ] && check_claude_ref "$skill_md" "$lineno" "$name"
+    done < <(grep -oE 'Skill tool (with|[a-z]+, for) "[^"]+"((,| and|, and) "[^"]+")*' <<< "$text" \
+               | grep -oE '"[^"]+"' | tr -d '"')
+  done < <(grep -nE 'Skill tool (with|[a-z]+, for) "' "$skill_md")
+done
+
+# Codex: `read skills/x/SKILL.md`.
+for skill_md in "$REPO_DIR"/skills/codex/*/SKILL.md; do
+  while IFS=: read -r lineno name; do
+    skill_dir_for codex "$name" > /dev/null \
+      || report "$skill_md" "$lineno" "skill reference" "no skill named \"$name\" is linked for Codex"
+  done < <(grep -noE 'skills/[a-z0-9:-]+/SKILL\.md' "$skill_md" | sed -E 's#^([0-9]+):skills/([^/]+)/SKILL\.md$#\1:\2#')
+done
+
+# A personal skill must not take a built-in's name.
+for set in claude shared external; do
+  for dir in "$REPO_DIR"/skills/"$set"/*/; do
+    name="$(basename "$dir")"
+    set_hosts "$set" "$name" | grep -qx claude || continue
+    in_list "$name" "${CLAUDE_BUILTINS[@]}" && report "${dir%/}/SKILL.md" 1 "built-in name" \
+      "a personal skill named \"$name\" replaces Claude Code's built-in /$name: rename it"
+  done
+done
+
+ref_violations=$((violations - contract_violations))
 
 $WORKLIST && exit 0
 
 total_skills=$(find "$REPO_DIR/skills/codex" -maxdepth 1 -mindepth 1 -type d | wc -l)
 echo ""
 if [ $violations -eq 0 ]; then
-  echo "PASS — $total_skills skills, no contract violations."
+  echo "PASS — $total_skills Codex skills, no contract violations; every skill reference resolves."
   exit 0
 fi
 
-echo "FAIL — $violations violation(s) across $skills_with_issues of $total_skills skills."
-echo ""
-echo "These are phase-2 work: each skill needs rewriting into GPT-dialect at the"
-echo "capability floor in skills/CONTRACT.md. Machine-readable list:"
-echo "    scripts/lint-skills.sh --worklist"
+if [ $contract_violations -gt 0 ]; then
+  echo "FAIL — $contract_violations contract violation(s) across $skills_with_issues of $total_skills Codex skills."
+  echo ""
+  echo "These are phase-2 work: each skill needs rewriting into GPT-dialect at the"
+  echo "capability floor in skills/CONTRACT.md. Machine-readable list:"
+  echo "    scripts/lint-skills.sh --worklist"
+fi
+[ $ref_violations -gt 0 ] && echo "FAIL — $ref_violations broken skill reference(s) or built-in name clash(es), listed above."
 exit 1

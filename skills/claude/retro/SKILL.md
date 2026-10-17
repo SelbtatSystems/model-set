@@ -48,3 +48,4 @@ This means that the review agent should be responsible for imposing coding stand
 - Docs: use docs as reference files, pointed to by other files. Look for existing docs before writing new ones. AgCore's live in the vault (`memory/AgCore/`), which takes file edits only.
 - Skills: use skills for docs (since their description goes into the agent's context window), or for user-invoked commands. Follow the advice in the `writing-for-agents` skill. They live in `~/model-set/skills/` (rules: `skills/CONTRACT.md`); a fix that stops a failure goes into both the `claude/` and `codex/` copies.
 - Auto-memory: `~/.claude/projects/<project>/memory/`, per machine. `MEMORY.md` is the index; group lines into hubs rather than letting it grow.
+- Evidence across many runs: `~/model-set/scripts/skill-usage.py` (how often each skill loaded or was refused, per agent) and `~/model-set/scripts/loop-outcomes.py` (how loop runs ended, and their cost).

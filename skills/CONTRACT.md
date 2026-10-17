@@ -136,6 +136,19 @@ difference is the entire reason the two sets exist.
 4. If it's degraded, add the `## Degraded vs Claude` block.
 5. Run `scripts/lint-skills.sh`.
 
+### Loading another skill
+
+Name the skill so the agent loads it: `Call the Skill tool with "x"` in the Claude set,
+`Read skills/x/SKILL.md and follow it` in the Codex set. A skill named only in prose does
+not reliably load. The lint checks every such reference: the skill must exist for that
+host, and on Claude it must not be `disable-model-invocation` or hidden by
+`skillOverrides` (`name-only` keeps it callable at almost no context cost). It also
+fails a Claude-linked skill that takes a Claude Code built-in's name.
+
+Before hiding, renaming or retiring a skill, run `scripts/skill-usage.py <name>` on each
+host: it counts loads, slash commands and refused calls for Claude and Codex. A skill one
+agent never uses can be load-bearing for the other.
+
 Never edit anything in `skills/external/` — changes are lost on the next upstream
 sync. Fork it into `claude/` or `codex/` under a new name instead.
 

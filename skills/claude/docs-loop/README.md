@@ -45,8 +45,13 @@ It finishes the phase it is in (never mid-merge) and exits. Ctrl-C is a hard sto
 5. WAIT     CYCLE_MINUTES, then repeat
 ```
 
-Invariant: **at most one open `documentation/*` PR at a time.** Other branches (`feature/*`,
-`fix/*`) are invisible to this loop — they belong to you or another loop.
+Invariant: **at most one open `documentation/*` PR at a time**, not counting parked PRs. Other
+branches (`feature/*`, `fix/*`) are invisible to this loop — they belong to you or another loop.
+
+A PR that `do-pr` blocks at a gate is **parked**: its number goes into `$LOG_DIR/parked-prs` and the
+loop moves on to the next unit. A parked PR stays open for you; the loop never merges it again and
+it does not count toward the invariant. To hand one back to the loop, delete its line from that
+file. Merging or closing it yourself needs no edit — only open PRs are counted.
 
 ### The work queue
 
@@ -107,7 +112,11 @@ All optional, set on the command line: `MERGE_MODEL=gpt-5.6-sol ~/.codex/.../doc
 | `MERGE_EFFORT` | `high` | reasoning effort for the merge review |
 | `MAIN_BRANCH` | `main` | branch PRs target |
 | `BASE_BRANCH` | *(current HEAD)* | the worktree branch to run on |
-| `MAX_DOCS_FAILS` | `3` | consecutive non-publish cycles before stopping |
+| `MAX_DOCS_FAILS` | `3` | consecutive failed runs (no sentinel, or an inconclusive merge) before stopping |
+| `MAX_DOCS_BLOCKED` | `5` | consecutive `DOCS_BLOCKED` units before stopping; a published unit resets it |
+| `MAX_NET_FAILS` | `6` | consecutive cycles in which `git fetch` or `gh pr list` failed (about 3 h at 15-min cycles) before stopping |
+| `MAX_PARKED` | `3` | open parked PRs before stopping |
+| `PARKED_FILE` | `$LOG_DIR/parked-prs` | one line per parked PR: number, date, time, reason |
 | `MAX_SATURATIONS` | `2` | consecutive critique passes finding nothing before the loop stops |
 | `AUTO_MIGRATE` | `1` | apply **non-data-destroying** pulled migrations to this worktree's DB and carry on; `0` = always stop for you |
 | `LOG_DIR` | `${XDG_STATE_HOME:-$HOME/.local/state}/agcore/docs-loop-logs` | per-run logs (`docs-*.log`, `merge-*.log`, `*.final.txt`, `git.log`, `gh.log`, `db.log`). Lives **outside the vault and the repo**: a raw run stream captures API keys, DSNs with passwords and JWTs, and the vault syncs to the owner's server. Machine-local state, never synced, never committed. |
@@ -145,12 +154,16 @@ Every stop prints a banner. Exit 0 = fine, 1 = needs you.
 | `MIGRATION PULLED` / `MERGED` | The migration could destroy local data (or failed to apply). Apply it to this worktree's DB yourself — see `db.log` — then restart. |
 | `PRE-FLIGHT FAILED` | Read the lines above it — usually HEAD on a unit branch, or a dirty tree. |
 | `GIT STATE NEEDS A HUMAN` | Branch diverged or uncommitted work present. Resolve, restart. |
-| `INVARIANT BROKEN — N open documentation/* PRs` | Two docs PRs exist; merge or close one, restart. |
-| `PR #N BLOCKED at a gate` | A real review/CI/security failure. Read the PR comment. |
+| `GITHUB UNREACHABLE for N cycles in a row` | `git fetch` or `gh pr list` failed 6 cycles running. Check the network and `git.log` / `gh.log`, restart. |
+| `INVARIANT BROKEN — N open documentation/* PRs that are not parked` | Two unparked docs PRs exist; merge or close one, restart. |
+| `TOO MANY PARKED PRS` | 3 docs PRs blocked at a gate wait for you — often one shared cause (CI down, billing). Read their PR comments; merge, close, or delete their lines from `parked-prs`, restart. |
 | `REPEATED INCONCLUSIVE MERGES` | The merge agent gave up 3× on one PR. Inspect its logs or retry with `MERGE_MODEL=gpt-5.6-sol`. |
-| `TOO MANY NON-PUBLISHED CYCLES` | 3 blocked/failed units in a row. Check the queue's blocked reasons. |
+| `TOO MANY BLOCKED UNITS` | 5 units in a row ended `DOCS_BLOCKED`. Read the queue's blocked reasons — five in a row usually share one cause (a red suite, a missing fixture). |
+| `TOO MANY FAILED DOCS RUNS` | 3 docs runs in a row ended with no sentinel (crash, cut-off, model outage). See the run logs. |
 
-A single **blocked unit does not stop the loop** — the row gets a reason and the loop moves on.
+These do **not** stop the loop: a single blocked unit (the row gets a reason and the next cycle takes
+other work), a PR blocked at a gate (parked, see above), and a failed fetch or `gh pr list` (the cycle
+is skipped and retried; after a merge, the next unit waits until the pull succeeds).
 
 ## Design notes (why it is built this way)
 
@@ -184,6 +197,7 @@ A single **blocked unit does not stop the loop** — the row gets a reason and t
 
   Accepted trade-off: a migration that drops policies *without* recreating them would quietly reduce
   RLS coverage on this dev database and no longer pause the loop. The classifier reads SQL text, so
-  it stays biased to stop on anything destructive it doesn't recognise. `psql -v ON_ERROR_STOP=1`
-  and its exit code are the proof it applied; nothing is taken on an agent's word.
+  it stays biased to stop on anything destructive it doesn't recognise. Files that pass are applied
+  with `npm run db:migrate` (one transaction, recorded in the ledger); its exit code is the proof
+  it applied; nothing is taken on an agent's word.
 - Changing a sentinel means changing it in **both** `SKILL.md` and this script.

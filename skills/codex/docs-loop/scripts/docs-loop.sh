@@ -4,7 +4,8 @@
 #   each cycle: fast-forward THIS worktree's branch to main → MERGE any open PR → DOCUMENT next unit → wait
 #   GPT-5.6 Sol runs $docs-loop (write docs); GPT-5.6 Luna runs $do-pr auto (review+merge)
 # invariant: at most ONE open documentation/* PR exists at any time (other PRs are ignored).
-# stops on: queue complete, a blocked PR, an unexpected state, ./scripts/stop-loop, Ctrl-C.
+# stops on: queue complete, an unexpected state, ./scripts/stop-loop, Ctrl-C. A PR blocked at a
+# gate is parked and a GitHub outage is retried; each only stops the loop past its own limit.
 # sentinel contract lives in the docs-loop SKILL.md — change a sentinel there → change it here too.
 # run from the repo root: ~/.codex/skills/docs-loop/scripts/docs-loop.sh
 # ──────────────────────────────────────────────────────────────
@@ -22,13 +23,21 @@ WIKI_DIR="${WIKI_DIR:-./memory}"          # docs coverage queue lives here
 # being deleted and can never be committed or synced by accident.
 LOG_DIR="${LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agcore/docs-loop-logs}"
 KEEP_RUNS="${KEEP_RUNS:-20}"              # prune run logs older than the newest N (0 = keep all)
-MAX_DOCS_FAILS="${MAX_DOCS_FAILS:-3}"     # consecutive non-published outcomes → stop
+MAX_DOCS_FAILS="${MAX_DOCS_FAILS:-3}"     # consecutive failed runs (no sentinel, inconclusive merge) → stop
+# A blocked unit is a finished run: the agent marked the row and the next unit is different work.
+# It gets its own, higher limit — three unrelated blocks (a flaky test twice, a missing fixture)
+# stopped the loop on 2026-10-04 while it was otherwise publishing every cycle.
+MAX_DOCS_BLOCKED="${MAX_DOCS_BLOCKED:-5}" # consecutive DOCS_BLOCKED units → stop
+# One failed fetch is a network blip, not a git problem: a DNS failure on 2026-09-30 stopped the
+# loop for 9 h as "GIT STATE NEEDS A HUMAN". Retry next cycle; stop only on a lasting outage.
+MAX_NET_FAILS="${MAX_NET_FAILS:-6}"       # consecutive cycles GitHub was unreachable → stop
+# A PR blocked at a gate stays open for a human and the loop moves on (as the issue loop does).
+# The limit stops a repo-wide outage — e.g. the CI billing block of 2026-09-30 — from piling up
+# one parked PR per cycle. Delete a line from PARKED_FILE to hand that PR back to the loop.
+MAX_PARKED="${MAX_PARKED:-3}"             # open parked PRs → stop
+PARKED_FILE="${PARKED_FILE:-$LOG_DIR/parked-prs}"
 MAX_CYCLES="${MAX_CYCLES:-0}"             # 0 = unlimited; positive value stops after that many complete cycles
 AUTO_MIGRATE="${AUTO_MIGRATE:-1}"         # 1 = apply purely additive migrations here; 0 = always stop for a human
-DOCKER_DIR="${DOCKER_DIR:-./infrastructure/docker}"
-DC_ENV_FILE="${DC_ENV_FILE:-../../.env}"  # relative to DOCKER_DIR (matches the dc() helper)
-DB_USER="${DB_USER:-agcore_user}"
-DB_NAME="${DB_NAME:-agcore_db}"
 PULLED_MIGRATIONS=()                      # filled by prep_worktree each sync
 DOCS_MODEL="${DOCS_MODEL:-gpt-5.6-sol}"   # codex model for the writer
 DOCS_EFFORT="${DOCS_EFFORT:-medium}"      # codex reasoning effort
@@ -60,6 +69,29 @@ prune_old_logs() {
                | sort -rn | tail -n +$((KEEP_RUNS+1)) | cut -d' ' -f2-)
   done
   [ "$removed" -gt 0 ] && log "pruned ${removed} run log(s), keeping the newest ${KEEP_RUNS} per kind"
+  return 0
+}
+
+# agent-browser Chromes outlive a run that ends without `agent-browser close` (killed,
+# timed out, or it just forgot). Their driver is gone, so they hang under systemd and keep
+# whatever the last page does — on 2026-09-27 one sat on a PDF at 100% of a core for 17.5 h,
+# holding 2.8 GB, and SIGTERM could not stop it (Chrome's shutdown waits on the busy tab).
+# A browser a live run owns always has its agent-browser driver as parent, so it is never
+# touched. Machine-wide on purpose: an orphan from any loop or session is equally dead.
+REAP_BROWSER_MIN_AGE="${REAP_BROWSER_MIN_AGE:-7200}"   # seconds; younger orphans are left alone
+reap_orphan_browsers() {
+  local pid parent age reaped=0
+  for pid in $(pgrep -f "$HOME/.agent-browser/browsers/[^ ]*/chrome --remote-debugging-port" 2>/dev/null); do
+    parent=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    [ -n "$parent" ] || continue
+    [ "$(ps -o comm= -p "$parent" 2>/dev/null)" = systemd ] || continue   # PID 1 or a user subreaper
+    age=$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')
+    [ "${age:-0}" -ge "$REAP_BROWSER_MIN_AGE" ] || continue
+    # Chrome leads its own process group; killing the group takes the zygote and tabs with it.
+    [ "$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')" = "$pid" ] || continue
+    kill -KILL -- "-$pid" 2>/dev/null && reaped=$((reaped+1)) \
+      && warn "reaped orphaned agent-browser Chrome $pid (running $((age/3600))h, no driver)"
+  done
   return 0
 }
 
@@ -153,7 +185,8 @@ prep_worktree() {
     return 1
   fi
   git switch "$BASE_BRANCH"  2>>"$LOG_DIR/git.log" || { err "switch to $BASE_BRANCH failed"; return 1; }
-  git fetch origin           2>>"$LOG_DIR/git.log" || { err "fetch failed"; return 1; }
+  # 3, not 1: a failed fetch is GitHub being unreachable, and the caller retries next cycle.
+  git fetch origin           2>>"$LOG_DIR/git.log" || { warn "fetch failed — GitHub unreachable? see $LOG_DIR/git.log"; return 3; }
   local before; before=$(git rev-parse HEAD)
   # ff-only: fast-forward our base to the latest main. If it can't (our branch
   # has its own un-merged commits / diverged), that needs a human — never force.
@@ -244,30 +277,32 @@ apply_migrations() {
     [ -f "$f" ] || { warn "migration no longer on disk: $f"; return 2; }
     migration_is_additive "$f" || { warn "not purely additive: $f"; return 2; }
   done
-  for f in "$@"; do
-    step "Applying $(basename "$f") to this worktree's DB…"
-    # ON_ERROR_STOP + the migration's own transaction: psql's exit code is the
-    # real proof it applied. Nothing here is trusted to an agent's say-so.
-    if ! (cd "$DOCKER_DIR" && docker compose --env-file "$DC_ENV_FILE" exec -T postgres \
-            psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1) <"$f" >>"$LOG_DIR/db.log" 2>&1; then
-      err "migration failed to apply: $f — see $LOG_DIR/db.log"
-      return 2
-    fi
-    ok "applied $(basename "$f")"
-  done
+  # Through the ledger, never by piping files into psql: db:migrate applies only what
+  # is pending, in one transaction, and records it. Bare psql ran each file outside a
+  # transaction (LOCK TABLE / SET LOCAL fail) and left applied files unrecorded.
+  step "Applying pending migrations via the ledger (npm run db:migrate)…"
+  if ! npm run --silent db:migrate >>"$LOG_DIR/db.log" 2>&1; then
+    err "db:migrate failed — see $LOG_DIR/db.log (an 'orphaned' row in npm run db:status needs a human)"
+    return 2
+  fi
+  ok "worktree DB is current with the migration ledger."
   return 0
 }
 
 # ---- open docs-PR count on base ------------------------------------------
 # Only documentation/* PRs belong to this loop. Unrelated dev PRs from parallel
 # worktrees are ignored — they are merged by the main merge loop or a human.
-open_pr_count() {
-  gh pr list --state open --base "$MAIN_BRANCH" --json headRefName \
-    --jq '[.[] | select(.headRefName | startswith("documentation/"))] | length' 2>>"$LOG_DIR/gh.log" || echo "ERR"
-}
-open_pr_number() {
+# Open documentation/* PRs, newest first, one number per line. The exit status is gh's, so the
+# caller can tell "none open" from "could not ask GitHub".
+open_docs_prs() {
   gh pr list --state open --base "$MAIN_BRANCH" --json number,headRefName \
-    --jq '[.[] | select(.headRefName | startswith("documentation/"))][0].number' 2>>"$LOG_DIR/gh.log"
+    --jq '.[] | select(.headRefName | startswith("documentation/")) | .number' 2>>"$LOG_DIR/gh.log"
+}
+# A parked PR waits for a human. It is no longer this loop's queue: it neither counts toward the
+# one-open-PR invariant nor gets merged again.
+is_parked() { [ -f "$PARKED_FILE" ] && cut -d' ' -f1 "$PARKED_FILE" | grep -qFx "$1"; }
+park_pr() {  # park_pr <number> <reason>
+  printf '%s %s %s\n' "$1" "$(date '+%F %T')" "$2" >> "$PARKED_FILE"
 }
 
 # ---- merge phase (codex $do-pr auto #N) ---------------------------------
@@ -345,11 +380,15 @@ preflight || stop_loop "PRE-FLIGHT FAILED — fix the above and restart" 1
 
 cycle=0
 docs_fails=0
+blocked_runs=0
+net_fails=0
 saturations=0
 banner "DOCS LOOP STARTING"
 log "cycle=${CYCLE_MINUTES}m  base=${BASE_BRANCH}  main=${MAIN_BRANCH}  wiki=${WIKI_DIR}"
 log "models: writer=${DOCS_MODEL}${DOCS_EFFORT:+ (${DOCS_EFFORT})}  merge=${MERGE_MODEL}${MERGE_EFFORT:+ (${MERGE_EFFORT})}"
 log "logs:  ${LOG_DIR}${D}  (keeping newest ${KEEP_RUNS} runs)${R}"
+log "limits: failed=${MAX_DOCS_FAILS}  blocked=${MAX_DOCS_BLOCKED}  offline=${MAX_NET_FAILS} cycles  parked=${MAX_PARKED}"
+[ -s "$PARKED_FILE" ] && log "parked PRs (delete a line to hand one back): $(cut -d' ' -f1 "$PARKED_FILE" | tr '\n' ' ')"
 log "stop gracefully: ${B}./scripts/stop-loop${R}${D}  (from another terminal)${R}"
 prune_old_logs
 
@@ -357,30 +396,69 @@ while :; do
   check_stop
   cycle=$((cycle+1))
   banner "CYCLE $cycle  —  $(ts)"
+  reap_orphan_browsers
 
   # ---- sync ----
   prep_worktree; rc=$?
   [ "$rc" -eq 1 ] && stop_loop "GIT STATE NEEDS A HUMAN — stopping" 1
+  if [ "$rc" -eq 3 ]; then
+    net_fails=$((net_fails+1))
+    warn "GitHub unreachable ${net_fails}/${MAX_NET_FAILS} — nothing synced, retrying next cycle"
+    [ "$net_fails" -ge "$MAX_NET_FAILS" ] \
+      && stop_loop "GITHUB UNREACHABLE for ${net_fails} cycles in a row — see $LOG_DIR/git.log" 1
+    banner "CYCLE $cycle DONE — waiting ${CYCLE_MINUTES}m"
+    countdown $((CYCLE_MINUTES*60)) "until cycle $((cycle+1))"
+    continue
+  fi
   if [ "$rc" -eq 2 ]; then
     apply_migrations "${PULLED_MIGRATIONS[@]}" \
       || stop_loop "MIGRATION PULLED — apply it to this worktree's DB, then restart the loop" 0
   fi
 
-  # ---- Phase 1: drain any open documentation/* PR FIRST (invariant: ≤ 1) ----
-  n=$(open_pr_count)
-  if [ "$n" = "ERR" ]; then stop_loop "gh pr list failed — see $LOG_DIR/gh.log" 1; fi
-  if [ "$n" -gt 1 ]; then stop_loop "INVARIANT BROKEN — ${n} open documentation/* PRs (expected ≤1). Human review." 1; fi
+  # ---- Phase 1: drain the open documentation/* PR FIRST (invariant: ≤ 1, parked PRs aside) ----
+  if ! all_prs=$(open_docs_prs); then
+    net_fails=$((net_fails+1))
+    warn "gh pr list failed ${net_fails}/${MAX_NET_FAILS} — see $LOG_DIR/gh.log; retrying next cycle"
+    [ "$net_fails" -ge "$MAX_NET_FAILS" ] \
+      && stop_loop "GITHUB UNREACHABLE for ${net_fails} cycles in a row — see $LOG_DIR/gh.log" 1
+    banner "CYCLE $cycle DONE — waiting ${CYCLE_MINUTES}m"
+    countdown $((CYCLE_MINUTES*60)) "until cycle $((cycle+1))"
+    continue
+  fi
+  net_fails=0
+  open_prs=(); parked_open=0
+  for p in $all_prs; do
+    if is_parked "$p"; then parked_open=$((parked_open+1)); else open_prs+=("$p"); fi
+  done
+  [ "$parked_open" -ge "$MAX_PARKED" ] \
+    && stop_loop "TOO MANY PARKED PRS — ${parked_open} documentation PRs wait for a human: $PARKED_FILE" 1
+  n=${#open_prs[@]}
+  if [ "$n" -gt 1 ]; then stop_loop "INVARIANT BROKEN — ${n} open documentation/* PRs that are not parked (expected ≤1). Human review." 1; fi
   if [ "$n" -eq 1 ]; then
-    pr=$(open_pr_number)
+    pr=${open_prs[0]}
     run_merge "$pr"; mrc=$?
     case "$mrc" in
       0) prep_worktree; rc=$?                                     # re-sync to pull the merge
          [ "$rc" -eq 1 ] && stop_loop "GIT STATE NEEDS A HUMAN — stopping" 1
+         if [ "$rc" -eq 3 ]; then
+           # Merged, but the pull failed: never write the next unit on a base without that merge.
+           net_fails=$((net_fails+1))
+           warn "merged #${pr}, but GitHub became unreachable before the pull ${net_fails}/${MAX_NET_FAILS} — retrying next cycle"
+           [ "$net_fails" -ge "$MAX_NET_FAILS" ] \
+             && stop_loop "GITHUB UNREACHABLE for ${net_fails} cycles in a row — see $LOG_DIR/git.log" 1
+           banner "CYCLE $cycle DONE — waiting ${CYCLE_MINUTES}m"
+           countdown $((CYCLE_MINUTES*60)) "until cycle $((cycle+1))"
+           continue
+         fi
          if [ "$rc" -eq 2 ]; then
            apply_migrations "${PULLED_MIGRATIONS[@]}" \
              || stop_loop "MIGRATION MERGED — apply it to this worktree's DB, then restart the loop" 0
          fi ;;
-      2) stop_loop "PR #${pr} BLOCKED at a gate — see its PR comment + $LOG_DIR. Human review." 1 ;;
+      2) park_pr "$pr" "blocked-at-gate"
+         parked_open=$((parked_open+1))
+         warn "PR #${pr} BLOCKED at a gate — parked (${parked_open}/${MAX_PARKED}); read its PR comment. Moving on."
+         [ "$parked_open" -ge "$MAX_PARKED" ] \
+           && stop_loop "TOO MANY PARKED PRS — ${parked_open} documentation PRs wait for a human: $PARKED_FILE" 1 ;;
       *) # Inconclusive: agent ended without merging or declaring blocked, but the PR is
          # still open and healthy on GitHub — retry next cycle instead of dying.
          docs_fails=$((docs_fails+1))
@@ -398,16 +476,21 @@ while :; do
   # ---- Phase 2: document the next unit (queue is now clear) ----
   run_docs; drc=$?
   case "$drc" in
-    0)  docs_fails=0; saturations=0 ;;
-    3)  docs_fails=0; saturations=0 ;;                            # critique filed / folder archived
+    0)  docs_fails=0; blocked_runs=0; saturations=0 ;;
+    3)  docs_fails=0; blocked_runs=0; saturations=0 ;;            # critique filed / folder archived
+    2)  docs_fails=0                                              # a finished run, not a crash
+        blocked_runs=$((blocked_runs+1))
+        warn "unit blocked ${blocked_runs}/${MAX_DOCS_BLOCKED} — its row has the reason; next cycle takes other work"
+        [ "$blocked_runs" -ge "$MAX_DOCS_BLOCKED" ] \
+          && stop_loop "TOO MANY BLOCKED UNITS — ${blocked_runs} in a row; read the blocked reasons in the queue (often one shared cause)" 1 ;;
     10) stop_loop "DOCS COMPLETE — coverage, maintenance, feature, and backlog work are clear; review blocked rows" 0 ;;
     11) saturations=$((saturations+1))                            # a critique pass that found nothing
         warn "critique saturated ${saturations}/${MAX_SATURATIONS}"
         [ "$saturations" -ge "$MAX_SATURATIONS" ] \
           && stop_loop "DOCS SATURATED — ${saturations} critique passes in a row found nothing to file" 0 ;;
-    *)  docs_fails=$((docs_fails+1))                              # blocked and failed both count
-        warn "non-published outcome ${docs_fails}/${MAX_DOCS_FAILS} — continuing"
-        [ "$docs_fails" -ge "$MAX_DOCS_FAILS" ] && stop_loop "TOO MANY NON-PUBLISHED CYCLES — stopping" 1 ;;
+    *)  docs_fails=$((docs_fails+1))                              # no sentinel: crashed or cut off
+        warn "docs run failed ${docs_fails}/${MAX_DOCS_FAILS} — continuing"
+        [ "$docs_fails" -ge "$MAX_DOCS_FAILS" ] && stop_loop "TOO MANY FAILED DOCS RUNS — ${docs_fails} in a row; see $LOG_DIR" 1 ;;
   esac
 
   if [ "$MAX_CYCLES" -gt 0 ] && [ "$cycle" -ge "$MAX_CYCLES" ]; then

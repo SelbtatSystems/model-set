@@ -138,7 +138,8 @@ from the freshly fetched remote main, never from a local branch or whatever HEAD
 documentation/<unit-id> origin/main` (a backlog issue uses `documentation/fix-<issue-slug>`). Prove
 freshness: `git merge-base --is-ancestor $(git ls-remote origin -h refs/heads/main | cut -f1) HEAD`.
 Keep the `documentation/` prefix whatever the work is — the runner counts open PRs by that prefix
-and enforces "at most one open at a time".
+and enforces "at most one open at a time". A PR the merge gate blocked is parked by the runner: it
+stays open for a human and does not count, so a parked PR is not this run's concern.
 
 ✓ **Done when:** exactly one unit is marked in progress and, for a code-backed unit, you are on a
 fresh `documentation/…` branch off origin/main.

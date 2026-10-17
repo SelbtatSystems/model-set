@@ -274,8 +274,9 @@ objects each migration creates. Do not blindly re-run everything.
 ### `PR #N BLOCKED at a gate`
 
 A real review, CI or security failure. Read the PR comment and the merge log's final message, then
-summarise the actual finding for Sven — the loop already moved on (issue-loop parks it in
-`parked-prs`; docs-loop and admin-loop stop).
+summarise the actual finding for Sven — the loop already moved on (issue-loop and docs-loop park it
+in `parked-prs`; admin-loop stops). docs-loop stops with `TOO MANY PARKED PRS` once 3 parked docs PRs
+are open; to hand a docs PR back, delete its line from `~/.local/state/agcore/docs-loop-logs/parked-prs`.
 
 To put a parked PR back in the queue once resolved:
 
@@ -287,6 +288,15 @@ echo <branch> >> issue-loop-logs/pending-branches
 
 Consecutive failures. Usually every remaining ticket is blocked, or an agent keeps dying. Check
 whether any `ready-for-agent` ticket still has satisfiable blockers.
+
+docs-loop splits this in two (2026-10-05): `TOO MANY BLOCKED UNITS` (5 `DOCS_BLOCKED` in a row —
+read the queue's blocked reasons, they usually share one cause such as a red suite) and
+`TOO MANY FAILED DOCS RUNS` (3 runs with no sentinel — read the run logs).
+
+### `GITHUB UNREACHABLE for N cycles in a row` (docs-loop)
+
+`git fetch` or `gh pr list` failed 6 cycles running (about 3 h). One failure only skips that cycle.
+Check the network and `git.log` / `gh.log` in the docs-loop log dir, then restart.
 
 ### `DOCS SATURATED`
 

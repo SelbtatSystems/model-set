@@ -340,6 +340,19 @@ migration_is_additive() {
   ! printf '%s' "$sql" | tr '\n' ' ' | grep -qiE "$DESTRUCTIVE_SQL"
 }
 
+# Every branch whose migration is legitimately mid-flight: the merge ledger, plus the
+# branches of PRs parked at a review gate. A parked PR is dropped from the ledger on
+# purpose (park_blocked_pr — surfaced, not retried), but its branch still exists and its
+# migration is still applied to this worktree's DB, so the ledger alone is not the whole
+# set. Reading only the ledger reported a parked PR's own migration as drift and stopped
+# the loop for a human on the next cycle — wt4, 2026-10-18: #2613
+# `feature/refused-offline-punch-resolution` parked at 23:15, loop refused to start at 00:29.
+# The Claude runner got this fix after the same bug hit wt2 on 2026-08-17 (#1127).
+inflight_branches() {
+  cat "$STATE_FILE" 2>/dev/null
+  sed -n 's/^- #[0-9]\+ `\([^`]\+\)`.*/\1/p' "$PARKED_FILE" 2>/dev/null
+}
+
 # An orphan is a migration the DB has applied but this checkout does not carry.
 # Mid-flight that is normal rather than drift: the build agent applies its
 # migration while on a unit branch, and the next cycle switches back to the base
@@ -347,26 +360,26 @@ migration_is_additive() {
 # cannot trace to a branch this loop is still waiting on is real drift.
 # $1 = db:status output.  returns 0 = every orphan is this loop's own work
 orphans_are_ours() {
-  local orphans=() name branch found
+  local orphans=() branches=() name branch found
   mapfile -t orphans < <(printf '%s\n' "$1" | sed -n 's/^  orphaned //p')
   [ "${#orphans[@]}" -gt 0 ] || return 0
-  [ -s "$STATE_FILE" ] || {
+  mapfile -t branches < <(inflight_branches | grep -v '^[[:space:]]*$' | sort -u)
+  [ "${#branches[@]}" -gt 0 ] || {
     err "orphaned migration(s) with an empty ledger — nothing this loop built explains them"
     return 1
   }
   for name in "${orphans[@]}"; do
     found=0
-    while IFS= read -r branch; do
-      [ -n "$branch" ] || continue
+    for branch in "${branches[@]}"; do
       # The unit branch is pushed before it reaches the ledger, so origin/ is the
       # reliable copy; the local ref is checked too in case a push is still pending.
       if git cat-file -e "origin/${branch}:db/migrations/${name}" 2>/dev/null \
         || git cat-file -e "${branch}:db/migrations/${name}" 2>/dev/null; then
         found=1; break
       fi
-    done < "$STATE_FILE"
+    done
     [ "$found" = 1 ] || {
-      err "orphaned migration belongs to no branch this loop is waiting on: $name"
+      err "orphaned migration belongs to no branch this loop is waiting on or has parked: $name"
       return 1
     }
   done

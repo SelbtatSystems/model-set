@@ -24,16 +24,13 @@ cd ~/Projects/agcore-wt2 && touch .issue-loop-stop
 
 It finishes the phase it is in (never mid-merge) and exits. Ctrl-C is a hard stop.
 
-### Choosing models
+### Coordinator models and accounts
 
 ```bash
-# default: Fable builds + triages, Opus coordinates bounded reviews and merges
+# Opus builds, triages and coordinates bounded reviews and merges
 ~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
 
-# Opus build and merge coordinators (helpers still follow task-based routing)
-MAIN_MODEL=opus ~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
-
-# Fable builds, Opus merges, merge phase on the second account
+# Same models, merge phase on the second account
 PR_CONFIG_DIR=~/.claude-max-2 \
   ~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
 ```
@@ -104,7 +101,7 @@ folder. `NEEDS-HUMAN.md` is the thing to read when you come back.
 
 | Env | Default | Meaning |
 |---|---|---|
-| `MAIN_MODEL` | `fable` | build + triage agent — the `fable` alias resolves to Claude Fable 5.1 |
+| `MAIN_MODEL` | `opus` (fixed) | build + triage coordinators; environment overrides are ignored |
 | `PR_MODEL` | `opus` (fixed) | merge coordinator; environment overrides are ignored |
 | `MAIN_CONFIG_DIR` / `PR_CONFIG_DIR` | `~/.claude` | Claude account per phase, e.g. `~/.claude-max-2` |
 | `CYCLE_MINUTES` | `30` | wait between cycles |

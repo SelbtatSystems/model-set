@@ -3,7 +3,7 @@
 # issue loop (ralph loop over ONE tracker folder):
 #   each cycle: ff worktree to main → MERGE this loop's open PR → TRIAGE needs-triage →
 #   BUILD next ready-for-agent ticket (do-issue) → wait
-# all agents are claude; MAIN_MODEL selects builds; the merge coordinator always uses Opus.
+# all agents are claude; build, triage and merge coordinators always use Opus.
 # only branches this loop created are merged — parallel pipelines' PRs are never touched.
 # stops on: folder finished (all done, or only human-owned tickets left → NEEDS-HUMAN.md),
 #           a blocked PR, an unexpected state, touch .issue-loop-stop, Ctrl-C.
@@ -32,7 +32,7 @@ MAX_FAILS="${MAX_FAILS:-3}"               # consecutive failed cycles → stop
 GH_RETRIES="${GH_RETRIES:-5}"             # gh attempts before declaring GitHub unreachable
 GH_RETRY_BASE="${GH_RETRY_BASE:-15}"      # linear backoff seed: 15s, 30s, 45s, 60s → ~2.5min
 AUTO_MIGRATE="${AUTO_MIGRATE:-1}"         # 1 = apply ledger-pending migrations; 0 = always stop for a human
-MAIN_MODEL="${MAIN_MODEL:-fable}"         # build + triage agent model
+MAIN_MODEL="opus"                       # fixed: build + triage coordinators always use Opus
 PR_MODEL="opus"                         # fixed: the merge coordinator always uses Opus
 # Per-phase thinking level: low|medium|high|xhigh|max. EMPTY IS NOT "no thinking" — it means the
 # flag is never passed, so the level comes from the account's settings.json `effortLevel`, which is

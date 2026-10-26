@@ -11,7 +11,7 @@ All agents are `claude`; you choose the models.
 
 ```bash
 cd ~/Projects/agcore-wt2                                    # one loop per worktree
-~/.codex/skills/issue-loop/scripts/issue-loop.sh memory/AgCore/planning/issues/<feature-slug>
+~/.claude/skills/issue-loop/scripts/issue-loop.sh memory/AgCore/planning/issues/<feature-slug>
 ```
 
 Run it inside **herdr** (see `memory/_cheat-sheets/herdr.md`) — the loop dies with its terminal otherwise.
@@ -27,15 +27,15 @@ It finishes the phase it is in (never mid-merge) and exits. Ctrl-C is a hard sto
 ### Choosing models
 
 ```bash
-# default: Fable builds + triages, Opus reviews and merges
-~/.codex/skills/issue-loop/scripts/issue-loop.sh <folder>
+# default: Fable builds + triages, Sonnet 5.5 coordinates bounded reviews and merges
+~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
 
-# Opus everywhere
-MAIN_MODEL=opus ~/.codex/skills/issue-loop/scripts/issue-loop.sh <folder>
+# Opus build and merge coordinators (helpers still follow task-based routing)
+MAIN_MODEL=opus PR_MODEL=opus ~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
 
-# Fable builds, Sonnet merges, merge phase on the second account
-PR_MODEL=sonnet PR_CONFIG_DIR=~/.claude-max-2 \
-  ~/.codex/skills/issue-loop/scripts/issue-loop.sh <folder>
+# Fable builds, Sonnet 5.5 merges, merge phase on the second account
+PR_MODEL=claude-sonnet-5-5 PR_CONFIG_DIR=~/.claude-max-2 \
+  ~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
 ```
 
 ### Before the first run

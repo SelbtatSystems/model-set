@@ -18,6 +18,8 @@ The autonomous runner starts you with `claude --print`: single-shot. Your final 
 
 If a job genuinely cannot be waited on, state it as a blocker. The runs behind these rules: [references/incidents.md](references/incidents.md).
 
+Keep delegation bounded: at most two implementation helpers plus one frontend reviewer per ticket. Do routine steps yourself. Helpers use Sonnet 5.5 (`model: "claude-sonnet-5-5"`), work on distinct scopes, and do not launch agents of their own. Use `frontend-review` at high effort for the ticket’s browser critique. Escalate only a concrete hard correctness/security task to Opus; state the reason. Reuse an existing helper for follow-up work instead of spawning per file or per finding.
+
 The tracker spec — where tickets live, the issue file format, the find-work command, and the triage roles — is defined in `docs/agents/issue-tracker.md` + `docs/agents/triage-labels.md` (reached via the repo's `## Agent skills` block). Read them; this skill does not restate them. If that config is missing, stop and ask the user where the tracker config lives — do not guess a tracker layout.
 
 ## Process

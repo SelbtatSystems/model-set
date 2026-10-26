@@ -7,7 +7,7 @@
 # only branches this loop created are merged — parallel pipelines' PRs are never touched.
 # stops on: folder finished (all done, or only human-owned tickets left → NEEDS-HUMAN.md),
 #           a blocked PR, an unexpected state, touch .issue-loop-stop, Ctrl-C.
-# usage: ~/.codex/skills/issue-loop/scripts/issue-loop.sh <tracker-folder>
+# usage: ~/.claude/skills/issue-loop/scripts/issue-loop.sh <tracker-folder>
 # ──────────────────────────────────────────────────────────────
 set -uo pipefail   # NOT -e: the loop decides what is fatal, line by line
 
@@ -33,11 +33,12 @@ GH_RETRIES="${GH_RETRIES:-5}"             # gh attempts before declaring GitHub 
 GH_RETRY_BASE="${GH_RETRY_BASE:-15}"      # linear backoff seed: 15s, 30s, 45s, 60s → ~2.5min
 AUTO_MIGRATE="${AUTO_MIGRATE:-1}"         # 1 = apply ledger-pending migrations; 0 = always stop for a human
 MAIN_MODEL="${MAIN_MODEL:-fable}"         # build + triage agent model
-PR_MODEL="${PR_MODEL:-opus}"              # merge agent model
+PR_MODEL="${PR_MODEL:-claude-sonnet-5-5}" # merge coordinator; do-pr escalates hard review scopes
 # Per-phase thinking level: low|medium|high|xhigh|max. EMPTY IS NOT "no thinking" — it means the
 # flag is never passed, so the level comes from the account's settings.json `effortLevel`, which is
 # how every Claude phase has been getting `high` since long before this knob existed. Leave both
 # empty to keep that behaviour; set one to override just that phase.
+REVIEW_HELPER_MODEL="${REVIEW_HELPER_MODEL:-claude-sonnet-5-5}" # default for unspecified helpers
 MAIN_EFFORT="${MAIN_EFFORT:-}"            # --effort for build + triage
 PR_EFFORT="${PR_EFFORT:-}"                # --effort for merge
 # Both phases run on the primary Claude account (~/.claude) by default; point a phase at another
@@ -104,10 +105,9 @@ render() {
 # The agent's FINAL message, extracted from the stream-json log. Sentinels are matched against
 # THIS, never the raw stream: an agent that merely *narrates* the contract mid-run ("...else
 # report <<<MERGE_BLOCKED #N reason>>>") would otherwise read as having emitted it. That false
-# positive parked a healthy PR and stopped the docs loop on 2026-08-03. Empty output (no result
-# line, no python3) means the caller falls back to the whole log — the old, lossy behaviour.
+# positive parked a healthy PR and stopped the docs loop on 2026-08-03. Missing or failed
+# terminal results produce no verdict. Python is required by preflight.
 final_message() {  # final_message <stream-json-logfile>
-  command -v python3 >/dev/null 2>&1 || { cat "$1"; return; }
   python3 - "$1" <<'PY' 2>/dev/null
 import json, sys
 out = ""
@@ -116,8 +116,12 @@ for line in open(sys.argv[1], errors="replace"):
         d = json.loads(line)
     except Exception:
         continue
-    if d.get("type") == "result" and isinstance(d.get("result"), str):
-        out = d["result"]
+    if not isinstance(d, dict):
+        continue
+    if d.get("type") == "result":
+        out = d.get("result", "") if not d.get("is_error") and d.get("subtype", "success") == "success" else ""
+        if not isinstance(out, str):
+            out = ""
 print(out)
 PY
 }
@@ -132,15 +136,21 @@ run_claude() {  # run_claude <model> <config-dir-or-empty> <effort-or-empty> <lo
   local -a eff=()
   [ -n "$effort" ] && eff=(--effort "$effort")
   if [ -n "$cfg" ]; then
-    CLAUDE_CONFIG_DIR="$cfg" claude --model "$model" "${eff[@]}" --permission-mode bypassPermissions \
+    CLAUDE_CODE_SUBAGENT_MODEL="$REVIEW_HELPER_MODEL" CLAUDE_CONFIG_DIR="$cfg" claude --model "$model" "${eff[@]}" --permission-mode bypassPermissions \
       --output-format stream-json --verbose \
       --print "$prompt" </dev/null 2>&1 | tee "$logfile" | render
   else
-    claude --model "$model" "${eff[@]}" --permission-mode bypassPermissions \
+    CLAUDE_CODE_SUBAGENT_MODEL="$REVIEW_HELPER_MODEL" claude --model "$model" "${eff[@]}" --permission-mode bypassPermissions \
       --output-format stream-json --verbose \
       --print "$prompt" </dev/null 2>&1 | tee "$logfile" | render
   fi
-  return "${PIPESTATUS[0]}"
+  local rc=${PIPESTATUS[0]} result_rc
+  python3 "$SCRIPT_DIR/agent-result.py" "$logfile"; result_rc=$?
+  if [ "$result_rc" -eq 75 ]; then
+    stop_loop "USAGE LIMIT — review incomplete; pending PR retained. Resume after capacity returns." 75
+  fi
+  [ "$rc" -ne 0 ] && return "$rc"
+  return "$result_rc"
 }
 
 # ---- tracker-folder state (deterministic, script-side) --------------------
@@ -322,6 +332,8 @@ preflight() {
   fi
   [ "$BASE_BRANCH" = "$MAIN_BRANCH" ] \
     && warn "BASE_BRANCH == ${MAIN_BRANCH}: running on main itself (OK only in the worktree that owns main)."
+  command -v python3 >/dev/null 2>&1 || { err "python3 not on PATH"; return 1; }
+  [ -r "$SCRIPT_DIR/agent-result.py" ] || { err "agent-result.py is missing"; return 1; }
   command -v gh     >/dev/null 2>&1 || { err "gh not on PATH";     return 1; }
   command -v claude >/dev/null 2>&1 || { err "claude not on PATH"; return 1; }
   gh auth status >/dev/null 2>&1 || { err "gh not authenticated (run: gh auth login)"; return 1; }
@@ -675,13 +687,14 @@ drain_pending() {
 
     local prompt="/do-pr auto #${pr}"
     if [ "$attempt" -gt 1 ]; then
-      prompt="/do-pr auto #${pr} — RETRY (attempt ${attempt}). A previous run already reviewed \
-this PR and ended without merging it and without a sentinel; its review found nothing blocking. \
-Do NOT repeat the full review. Confirm the state yourself (gh pr view / gh pr checks --watch), \
-and if every check is green and the PR is mergeable, merge it and emit the sentinel. If you find \
+      prompt="/do-pr auto #${pr} — RETRY (attempt ${attempt}). A previous run attempted \
+this PR and ended without merging it and without a sentinel. Read completed review reports, \
+compare both base and head SHAs, and reuse only complete layers with resolved findings. An \
+interrupted or usage-limited review is incomplete. Finish missing or invalidated do-pr gates. \
+Confirm gh pr view and gh pr checks --watch --interval 30; merge only after every gate passes. If you find \
 a real blocker, comment it on the PR and emit <<<MERGE_BLOCKED #${pr} reason>>>. End with exactly \
 one sentinel — a summary without one is a failed run."
-      warn "retrying #${pr} (attempt ${attempt}) — skipping the full re-review"
+      warn "retrying #${pr} (attempt ${attempt}) — checking completed review evidence"
     fi
     step "Launching claude (${PR_MODEL}) → /do-pr auto #${pr} (branch ${branch}, attempt ${attempt}) …"
     log "streaming below + → ${D}$logfile${R}"
@@ -950,7 +963,7 @@ BUILT_BRANCHES=""
 banner "ISSUE LOOP STARTING — ${TRACKER_DIR}"
 log "worktree: ${B}$(pwd)${R}"   # printed loudly: starting in the wrong worktree is easy to miss
 log "cycle=${CYCLE_MINUTES}m  base=${BASE_BRANCH}  main=${MAIN_BRANCH}"
-log "models: build/triage=${MAIN_MODEL}  merge=${PR_MODEL}"
+log "models: build/triage=${MAIN_MODEL}  merge=${PR_MODEL}  default-helper=${REVIEW_HELPER_MODEL}"
 log "effort: build/triage=${MAIN_EFFORT:-settings.json}  merge=${PR_EFFORT:-settings.json}"
 log "accounts: build/triage=${MAIN_CONFIG_DIR:-terminal default}  merge=${PR_CONFIG_DIR:-terminal default}"
 log "stop gracefully: ${B}touch ${STOP_FILE}${R}"

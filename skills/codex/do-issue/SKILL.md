@@ -179,3 +179,10 @@ CI belongs to `$do-pr`.
 In the ticket file: flip `**Triage:**` to `done` and append a dated `## Comments` line linking the PR. **Never modify the parent PRD.** Then name the tickets this unblocks and stop — the next run takes the next ticket. (Write the tracker file only; do not commit it or run its scripts if the tracker lives in an externally-managed store — follow the repo's tracker config.)
 
 ✓ **Done when:** the ticket's `**Triage:**` reads `done` and a `## Comments` entry links the PR.
+
+## Bounded delegation
+
+Do routine work in the main session. If this host supports delegation, use at most
+two implementation helpers and one frontend reviewer per ticket, with distinct
+scopes and no nested delegation. Reuse helpers for follow-up work. Preserve this
+host’s configured models; Claude-specific Sonnet/Opus routing belongs to Claude.

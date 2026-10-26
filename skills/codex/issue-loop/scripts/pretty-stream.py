@@ -158,7 +158,9 @@ def handle(event):
             )
             if part
         )
-        emit("done", "32", flat(event.get("result", ""), 200) + (f"  [{meta}]" if meta else ""))
+        failed = event.get("is_error", False) or event.get("subtype", "success") != "success"
+        emit("ERROR" if failed else "done", "31" if failed else "32",
+             flat(event.get("result", ""), 200) + (f"  [{meta}]" if meta else ""))
         return
 
     if kind == "system" and event.get("subtype") == "error":

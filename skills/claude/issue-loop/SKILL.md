@@ -11,7 +11,7 @@ A runner script, not an agent playbook: `scripts/issue-loop.sh` orchestrates the
 for an agent. Start it from the repo root of the worktree that should do the work:
 
 ```bash
-~/.codex/skills/issue-loop/scripts/issue-loop.sh memory/AgCore/planning/issues/<feature-slug>
+~/.claude/skills/issue-loop/scripts/issue-loop.sh memory/AgCore/planning/issues/<feature-slug>
 ```
 
 ## Model knobs (per loop instance, nothing global)
@@ -19,11 +19,19 @@ for an agent. Start it from the repo root of the worktree that should do the wor
 | Env | Default | Meaning |
 |---|---|---|
 | `MAIN_MODEL` | `fable` | build agent (`do-issue`) and triage agent — the `fable` alias resolves to Claude Fable 5.1 |
-| `PR_MODEL` | `opus` | merge agent (`do-pr`) |
+| `PR_MODEL` | `claude-sonnet-5-5` | merge coordinator (`do-pr`) |
+| `REVIEW_HELPER_MODEL` | `claude-sonnet-5-5` | fallback for helpers without an explicit model; hard reviews may select Opus |
 | `MAIN_CONFIG_DIR` / `PR_CONFIG_DIR` | `$HOME/.claude` | `CLAUDE_CONFIG_DIR` per phase, e.g. `$HOME/.claude-max-2` |
 | `CYCLE_MINUTES` | `30` | wait between cycles |
 
-`MAIN_MODEL=opus` runs Opus for build and merge; the default pair is Fable build + Opus merge.
+The default pair is Fable build + Sonnet 5.5 merge coordination. `MAIN_MODEL` and
+`PR_MODEL` remain explicit overrides. `do-pr` uses one code/spec/standards reviewer
+and one independent security reviewer, plus a Sonnet 5.5 browser reviewer when
+needed. Reviewers do not delegate; Opus is reserved for named hard risks.
+
+A usage-limit result stops the runner immediately with pending work retained.
+Restart after capacity returns. Retry reuses only completed reports matching
+both current base and head SHAs; it never assumes a previous review passed.
 
 ## What one cycle does
 

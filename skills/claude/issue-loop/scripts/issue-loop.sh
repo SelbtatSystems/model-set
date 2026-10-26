@@ -38,7 +38,6 @@ PR_MODEL="opus"                         # fixed: the merge coordinator always us
 # flag is never passed, so the level comes from the account's settings.json `effortLevel`, which is
 # how every Claude phase has been getting `high` since long before this knob existed. Leave both
 # empty to keep that behaviour; set one to override just that phase.
-REVIEW_HELPER_MODEL="${REVIEW_HELPER_MODEL:-claude-sonnet-5-5}" # default for unspecified helpers
 MAIN_EFFORT="${MAIN_EFFORT:-}"            # --effort for build + triage
 PR_EFFORT="${PR_EFFORT:-}"                # --effort for merge
 # Both phases run on the primary Claude account (~/.claude) by default; point a phase at another
@@ -136,11 +135,11 @@ run_claude() {  # run_claude <model> <config-dir-or-empty> <effort-or-empty> <lo
   local -a eff=()
   [ -n "$effort" ] && eff=(--effort "$effort")
   if [ -n "$cfg" ]; then
-    CLAUDE_CODE_SUBAGENT_MODEL="$REVIEW_HELPER_MODEL" CLAUDE_CONFIG_DIR="$cfg" claude --model "$model" "${eff[@]}" --permission-mode bypassPermissions \
+    CLAUDE_CONFIG_DIR="$cfg" env -u CLAUDE_CODE_SUBAGENT_MODEL claude --model "$model" "${eff[@]}" --permission-mode bypassPermissions \
       --output-format stream-json --verbose \
       --print "$prompt" </dev/null 2>&1 | tee "$logfile" | render
   else
-    CLAUDE_CODE_SUBAGENT_MODEL="$REVIEW_HELPER_MODEL" claude --model "$model" "${eff[@]}" --permission-mode bypassPermissions \
+    env -u CLAUDE_CODE_SUBAGENT_MODEL claude --model "$model" "${eff[@]}" --permission-mode bypassPermissions \
       --output-format stream-json --verbose \
       --print "$prompt" </dev/null 2>&1 | tee "$logfile" | render
   fi
@@ -963,7 +962,7 @@ BUILT_BRANCHES=""
 banner "ISSUE LOOP STARTING — ${TRACKER_DIR}"
 log "worktree: ${B}$(pwd)${R}"   # printed loudly: starting in the wrong worktree is easy to miss
 log "cycle=${CYCLE_MINUTES}m  base=${BASE_BRANCH}  main=${MAIN_BRANCH}"
-log "models: build/triage=${MAIN_MODEL}  merge=${PR_MODEL}  default-helper=${REVIEW_HELPER_MODEL}"
+log "models: build/triage=${MAIN_MODEL}  merge=${PR_MODEL}  helpers=Opus (frontend/browser=Sonnet 5.5)"
 log "effort: build/triage=${MAIN_EFFORT:-settings.json}  merge=${PR_EFFORT:-settings.json}"
 log "accounts: build/triage=${MAIN_CONFIG_DIR:-terminal default}  merge=${PR_CONFIG_DIR:-terminal default}"
 log "stop gracefully: ${B}touch ${STOP_FILE}${R}"

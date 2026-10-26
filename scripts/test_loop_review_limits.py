@@ -66,7 +66,7 @@ class ResultTests(unittest.TestCase):
 
 
 class ClaudeLaunchTests(unittest.TestCase):
-    def launch(self, event, exit_code=0, profile="", helper="claude-sonnet-5-5"):
+    def launch(self, event, exit_code=0, profile=""):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = (runner_dir("claude") / "issue-loop.sh").read_text()
@@ -86,15 +86,15 @@ class ClaudeLaunchTests(unittest.TestCase):
             return subprocess.run(["bash", str(script)], text=True, capture_output=True,
                                   env=dict(os.environ, PATH=f"{root}:{os.environ['PATH']}",
                                            SCRIPT_DIR=str(runner_dir("claude")),
-                                           REVIEW_HELPER_MODEL=helper, TEST_PROFILE=profile,
+                                           CLAUDE_CODE_SUBAGENT_MODEL="claude-sonnet-5-5", TEST_PROFILE=profile,
                                            TEST_LOG=str(root / "run.log")), timeout=10)
 
-    def test_default_helpers_use_sonnet_with_both_profile_paths(self):
+    def test_blanket_model_override_is_cleared_with_both_profile_paths(self):
         for profile in ("", "/tmp/test-profile"):
             result = self.launch(dict(type="result", subtype="success", result="Reviewed"), profile=profile)
             self.assertEqual(result.returncode, 0, result.stderr)
             launch = json.loads(result.stdout.splitlines()[0])
-            self.assertEqual(launch["helper"], "claude-sonnet-5-5")
+            self.assertIsNone(launch["helper"])
             self.assertEqual(launch["args"][launch["args"].index("--model") + 1], "opus")
             if profile:
                 self.assertEqual(launch["profile"], profile)

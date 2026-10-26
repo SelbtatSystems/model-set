@@ -20,13 +20,14 @@ for an agent. Start it from the repo root of the worktree that should do the wor
 |---|---|---|
 | `MAIN_MODEL` | `opus` (fixed) | build coordinator (`do-issue`) and triage coordinator; environment overrides are ignored |
 | `PR_MODEL` | `opus` (fixed) | merge coordinator (`do-pr`); environment overrides are ignored |
-| `REVIEW_HELPER_MODEL` | `claude-sonnet-5-5` | fallback for helpers without an explicit model; hard reviews may select Opus |
 | `MAIN_CONFIG_DIR` / `PR_CONFIG_DIR` | `$HOME/.claude` | `CLAUDE_CONFIG_DIR` per phase, e.g. `$HOME/.claude-max-2` |
 | `CYCLE_MINUTES` | `30` | wait between cycles |
 
-Build, triage and merge coordinators always use Opus. `do-pr` uses one code/spec/standards reviewer
-and one independent security reviewer, plus a Sonnet 5.5 browser reviewer when
-needed. Reviewers do not delegate; Opus helpers are reserved for named hard risks.
+Build, triage and merge coordinators always use Opus. Helpers use Opus at high
+effort; only frontend/browser reviews use Sonnet 5.5. `do-pr` uses one Opus
+code/spec/standards reviewer and one independent Opus security reviewer, plus
+a Sonnet 5.5 browser reviewer when needed. Reviewers do not delegate. The runner
+clears the blanket subagent-model environment override so each role keeps its model.
 
 A usage-limit result stops the runner immediately with pending work retained.
 Restart after capacity returns. Retry reuses only completed reports matching

@@ -1,7 +1,7 @@
 ---
 name: pr-security-reviewer
 description: Independently trace security risks in one pinned PR diff and filter false positives, without editing or delegating.
-model: claude-sonnet-5-5
+model: opus
 effort: high
 tools: Read, Grep, Glob, Bash
 maxTurns: 40

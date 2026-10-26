@@ -9,7 +9,7 @@ Take a pull request from open to merged without shipping a regression. Inputs: a
 
 The organizing lever is **risk tier** — cheap checks run on every PR, expensive ones scale with risk. One **gate** is absolute: no PR merges while an unpatched high/critical security finding lives in the diff. The agent patches those, not the user.
 
-The main merge coordinator runs on **Opus**. This does not change the Sonnet 5.5 defaults for review helpers or frontend work.
+The main merge coordinator, code/spec/standards reviewer and security reviewer run on **Opus**. Only frontend/browser reviews use **Sonnet 5.5**. Reviewers use high effort.
 
 This skill uses two direct reviewers: `pr-code-reviewer` for correctness, spec and standards, and `pr-security-reviewer` for an independent security pass. The parent patches findings and runs static checks, tests, runtime verification and CI. Do not invoke the built-in code-review/security-review/simplify pipelines or two-axis-review inside this workflow: their nested reviewers duplicate these passes.
 
@@ -34,8 +34,8 @@ The runner starts you with `claude --print`: single-shot. Your final message end
 
 Use at most **two review roles plus one frontend/browser reviewer** for a PR snapshot. No coordinator wrappers, per-angle finders, per-file reviewers, per-finding verifiers, or nested model CLI runs. The named code/security agents have only Read, Grep, Glob and Bash: no delegation or Skill tools. If an agent definition is missing, stop and repair the installation; do not silently fall back to an unrestricted agent.
 
-- **Code/spec/standards:** `pr-code-reviewer`, Sonnet 5.5 (`model: "claude-sonnet-5-5"`), high effort. Use Opus (`model: "opus"`) only for a concrete difficult correctness problem such as cross-service races or money/state invariants; state the reason. A large file count alone is not an escalation.
-- **Security:** `pr-security-reviewer`, Sonnet 5.5 for low/medium risk; Opus at high effort for changed auth, tenant isolation, cryptography, sensitive-data access or similarly hard security boundaries. A migration without such changes does not by itself require Opus. Name the boundary being escalated.
+- **Code/spec/standards:** `pr-code-reviewer`, Opus (`model: "opus"`), high effort for every risk tier.
+- **Security:** `pr-security-reviewer`, Opus (`model: "opus"`), high effort for every risk tier.
 - **Frontend/runtime browser work:** `frontend-review`, Sonnet 5.5, high effort. Only when UI needs verification; no additional design-review agent for the same surface.
 
 Give each reviewer the absolute worktree path, exact base and HEAD SHAs, spec path and applicable risk areas. Require read-only work, no PR actions, no sentinels, and a complete/ incomplete verdict with covered revisions and concrete findings. Start the security pass after correctness fixes are committed, so it reviews the code that may ship. The parent triages and verifies findings itself.

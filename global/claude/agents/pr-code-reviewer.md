@@ -1,7 +1,7 @@
 ---
 name: pr-code-reviewer
 description: Review one pinned PR diff for correctness, ticket coverage, and repository standards; return findings without editing or delegating.
-model: claude-sonnet-5-5
+model: opus
 effort: high
 tools: Read, Grep, Glob, Bash
 maxTurns: 40

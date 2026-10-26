@@ -35,6 +35,10 @@ PR_CONFIG_DIR=~/.claude-max-2 \
   ~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
 ```
 
+Code/spec/standards and security reviewers use Opus at high effort. Only frontend/browser
+reviews use Sonnet 5.5. Merge review is limited to those two Opus reviewers and,
+when needed, one Sonnet frontend reviewer; no nested reviewer trees.
+
 ### Before the first run
 
 - Worktree on a **plain branch** (not a leftover feature branch with unmerged commits) and a

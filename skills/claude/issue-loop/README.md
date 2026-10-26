@@ -27,14 +27,14 @@ It finishes the phase it is in (never mid-merge) and exits. Ctrl-C is a hard sto
 ### Choosing models
 
 ```bash
-# default: Fable builds + triages, Sonnet 5.5 coordinates bounded reviews and merges
+# default: Fable builds + triages, Opus coordinates bounded reviews and merges
 ~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
 
 # Opus build and merge coordinators (helpers still follow task-based routing)
-MAIN_MODEL=opus PR_MODEL=opus ~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
+MAIN_MODEL=opus ~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
 
-# Fable builds, Sonnet 5.5 merges, merge phase on the second account
-PR_MODEL=claude-sonnet-5-5 PR_CONFIG_DIR=~/.claude-max-2 \
+# Fable builds, Opus merges, merge phase on the second account
+PR_CONFIG_DIR=~/.claude-max-2 \
   ~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
 ```
 
@@ -105,7 +105,7 @@ folder. `NEEDS-HUMAN.md` is the thing to read when you come back.
 | Env | Default | Meaning |
 |---|---|---|
 | `MAIN_MODEL` | `fable` | build + triage agent — the `fable` alias resolves to Claude Fable 5.1 |
-| `PR_MODEL` | `opus` | merge agent |
+| `PR_MODEL` | `opus` (fixed) | merge coordinator; environment overrides are ignored |
 | `MAIN_CONFIG_DIR` / `PR_CONFIG_DIR` | `~/.claude` | Claude account per phase, e.g. `~/.claude-max-2` |
 | `CYCLE_MINUTES` | `30` | wait between cycles |
 | `MAX_FAILS` | `3` | consecutive failed/stalled cycles before stopping |
@@ -142,7 +142,7 @@ File contents, command output and diffs are omitted here but written in full to
 | `MIGRATION PULLED` / `MERGED` | 0 | The migration could destroy local dev data (`DROP TABLE/COLUMN/SCHEMA`, `TRUNCATE`, `DELETE FROM`, column-type rewrite, rename), or it failed to apply (see `db.log`). Apply it yourself, then restart. Everything else — including `DROP POLICY`/`FUNCTION`/`INDEX` and `DROP MATERIALIZED VIEW` (derived rows its own refresh rebuilds; it cannot be altered in place) — applies automatically and never stops the loop. |
 | `PRE-FLIGHT FAILED` | 1 | Usually a bad folder path, a dirty tree, or a tracker with no `**Triage:**` lines. |
 | `GIT STATE NEEDS A HUMAN` | 1 | Diverged branch or uncommitted work. Resolve, restart. |
-| `REPEATED INCONCLUSIVE MERGES` | 1 | Merge agent gave up 3×. Merge by hand, or try `PR_MODEL=opus`. |
+| `REPEATED INCONCLUSIVE MERGES` | 1 | Merge agent gave up 3×. Inspect the incomplete gate before restarting. |
 | `TOO MANY CONSECUTIVE FAILURES` | 1 | See below. |
 
 **"No progress" warnings** mean the build agent opened no PR and closed no ticket. The usual cause

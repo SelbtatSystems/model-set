@@ -19,13 +19,13 @@ for an agent. Start it from the repo root of the worktree that should do the wor
 | Env | Default | Meaning |
 |---|---|---|
 | `MAIN_MODEL` | `fable` | build agent (`do-issue`) and triage agent — the `fable` alias resolves to Claude Fable 5.1 |
-| `PR_MODEL` | `claude-sonnet-5-5` | merge coordinator (`do-pr`) |
+| `PR_MODEL` | `opus` (fixed) | merge coordinator (`do-pr`); environment overrides are ignored |
 | `REVIEW_HELPER_MODEL` | `claude-sonnet-5-5` | fallback for helpers without an explicit model; hard reviews may select Opus |
 | `MAIN_CONFIG_DIR` / `PR_CONFIG_DIR` | `$HOME/.claude` | `CLAUDE_CONFIG_DIR` per phase, e.g. `$HOME/.claude-max-2` |
 | `CYCLE_MINUTES` | `30` | wait between cycles |
 
-The default pair is Fable build + Sonnet 5.5 merge coordination. `MAIN_MODEL` and
-`PR_MODEL` remain explicit overrides. `do-pr` uses one code/spec/standards reviewer
+The default pair is Fable build + Opus merge coordination. `MAIN_MODEL` can be
+overridden; the merge coordinator always uses Opus. `do-pr` uses one code/spec/standards reviewer
 and one independent security reviewer, plus a Sonnet 5.5 browser reviewer when
 needed. Reviewers do not delegate; Opus is reserved for named hard risks.
 

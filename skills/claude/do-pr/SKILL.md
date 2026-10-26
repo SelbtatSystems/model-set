@@ -9,6 +9,8 @@ Take a pull request from open to merged without shipping a regression. Inputs: a
 
 The organizing lever is **risk tier** — cheap checks run on every PR, expensive ones scale with risk. One **gate** is absolute: no PR merges while an unpatched high/critical security finding lives in the diff. The agent patches those, not the user.
 
+The main merge coordinator runs on **Opus**. This does not change the Sonnet 5.5 defaults for review helpers or frontend work.
+
 This skill uses two direct reviewers: `pr-code-reviewer` for correctness, spec and standards, and `pr-security-reviewer` for an independent security pass. The parent patches findings and runs static checks, tests, runtime verification and CI. Do not invoke the built-in code-review/security-review/simplify pipelines or two-axis-review inside this workflow: their nested reviewers duplicate these passes.
 
 ## Modes

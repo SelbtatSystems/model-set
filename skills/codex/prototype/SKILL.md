@@ -24,6 +24,7 @@ The two branches produce very different artifacts — getting this wrong wastes 
 4. **Skip the polish.** No tests, no error handling beyond what makes the prototype _runnable_, no abstractions. The point is to learn something fast and then delete it.
 5. **Surface the state.** After every action (logic) or on every variant switch (UI), print or render the full relevant state so the user can see what changed.
 6. **Delete or absorb when done.** When the prototype has answered its question, either delete it or fold the validated decision into the real code — don't leave it rotting in the repo.
+7. **Always the same cast.** Use only names from the project's cast file for every invented person, organisation, department, place and device. Prototype screens go straight into the user docs, so every page must tell the same story. AgCore: `memory/AgCore/docs/agents/prototype-cast.md` (Burdekin Farms, its four departments, the kiosk mockup's workers). Data read from a dev database must also show through the cast: map each real record to a cast name at the prototype's data seam (one map keyed by id, in a stable order). No fixture name ("Nora Livecheck", "Punch08 Block QA") may reach the screen. Need a role the cast lacks? Add it to the cast file first, then use it. If the project has no cast file, create one before the first prototype and reuse it after.
 
 ## When done
 

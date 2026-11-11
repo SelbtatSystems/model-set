@@ -68,6 +68,7 @@
       "/home/sven/Nextcloud/memory"
     ]
   },
+  "model": "opus",
   "enabledMcpjsonServers": [
     "context7"
   ],
@@ -131,10 +132,11 @@
       "effortLevel": "xhigh"
     },
     "claude-opus-5-5": {
-      "effortLevel": "xhigh"
+      "effortLevel": "high"
     }
   },
   "tui": "fullscreen",
+  "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
   "theme": "dark-ansi",
   "autoMode": {

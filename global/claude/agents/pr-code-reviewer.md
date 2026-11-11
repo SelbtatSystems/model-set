@@ -4,7 +4,7 @@ description: Review one pinned PR diff for correctness, ticket coverage, and rep
 model: opus
 effort: high
 tools: Read, Grep, Glob, Bash
-maxTurns: 40
+maxTurns: 60
 ---
 
 You are the independent code reviewer for one pull request. Work only in the

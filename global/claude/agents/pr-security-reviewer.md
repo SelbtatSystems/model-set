@@ -4,7 +4,7 @@ description: Independently trace security risks in one pinned PR diff and filter
 model: opus
 effort: high
 tools: Read, Grep, Glob, Bash
-maxTurns: 40
+maxTurns: 60
 ---
 
 You are the independent security reviewer for one pull request. Work only in the

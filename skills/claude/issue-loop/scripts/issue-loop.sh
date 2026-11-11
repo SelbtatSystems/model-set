@@ -44,6 +44,11 @@ PR_EFFORT="${PR_EFFORT:-}"                # --effort for merge
 # profile to move it, e.g. PR_CONFIG_DIR=~/.claude-max-2 issue-loop.sh <folder>
 MAIN_CONFIG_DIR="${MAIN_CONFIG_DIR-$HOME/.claude}"  # CLAUDE_CONFIG_DIR for build/triage
 PR_CONFIG_DIR="${PR_CONFIG_DIR-$HOME/.claude}"      # CLAUDE_CONFIG_DIR for merge
+# Under --print the CLI waits only 10 min after the agent's last turn for background subagents, then
+# kills them. A build that hands a slice to a background subagent and ends its turn "until it
+# reports" lost that subagent and left the tree dirty (wt2, time-rounding ticket 03, 2026-11-09).
+# 60 min covers a long storage or review slice; a hung task still cannot stall the loop forever.
+export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS="${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS:-3600000}"
 STATE_FILE="$LOG_DIR/pending-branches"    # branches this loop built, awaiting merge
 PARKED_FILE="$LOG_DIR/parked-prs"         # PRs blocked at a gate: surfaced, not retried
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

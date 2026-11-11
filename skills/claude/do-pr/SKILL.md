@@ -40,7 +40,7 @@ Use at most **two review roles plus one frontend/browser reviewer** for a PR sna
 
 Give each reviewer the absolute worktree path, exact base and HEAD SHAs, spec path and applicable risk areas. Require read-only work, no PR actions, no sentinels, and a complete/ incomplete verdict with covered revisions and concrete findings. Start the security pass after correctness fixes are committed, so it reviews the code that may ship. The parent triages and verifies findings itself.
 
-Each code/security reviewer has a 40-turn limit. Reuse its context for fixes or missing coverage; allow at most one continuation per role on the same snapshot. A crash may be retried once with the same scope. Repeated incomplete results block the merge; do not launch an expanding review tree to compensate. Changed code needs the affected checks again, not an unrelated new cleanup pass.
+Each code/security reviewer has a 60-turn limit. Reuse its context for fixes or missing coverage; allow at most one continuation per role on the same snapshot. A crash may be retried once with the same scope. Repeated incomplete results block the merge; do not launch an expanding review tree to compensate. Changed code needs the affected checks again, not an unrelated new cleanup pass.
 
 ### Completed evidence survives retries
 

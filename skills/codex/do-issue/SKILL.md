@@ -50,7 +50,7 @@ State the chosen ticket's number and title before going on.
 
 ### 2. Read the contract
 
-The ticket's **Agent Brief** (or its *What to build* + *Acceptance criteria*) is **the contract** — the spec you build against. Read it in full, plus the parent PRD for intent and for its *Testing Decisions* (the seams step 4 tests at). Then load the owning context per `docs/agents/domain.md`: the `**App:**`'s `CONTEXT.md` glossary and the ADRs in that area. Work in glossary vocabulary. If the contract contradicts an ADR, stop and surface it instead of overriding.
+The ticket's **Agent Brief** (or its *What to build* + *Acceptance criteria*) is **the contract** — the spec you build against. Read it in full. From the parent PRD read the *Problem Statement*, *Solution*, *Implementation Decisions* and *Testing Decisions* (the seams step 4 tests at): list its headings first (`rg -n "^## " <PRD>`) and skip the *User Stories* list unless the ticket cites a story, because a PRD can be 5–25k tokens. Then load the owning context the way `docs/agents/domain.md` says: the Core terms of the `**App:**`'s `CONTEXT.md`, a search for any other term, and the ADRs its index names for that area. Never read a whole glossary or ADR folder. Work in glossary vocabulary. If the contract contradicts an ADR, stop and surface it instead of overriding.
 
 **Stopping on a decision — hand the ticket back.** Applies when the build needs a person: contract vs ADR conflict, a scope/product call the code forces, or provider docs that disprove the brief. A ticket left `ready-for-agent` is re-picked every loop cycle and stops the loop after `MAX_FAILS` (pay-adjustments 18, 2026-09-26: three identical stops; ticket 22 never ran). Required, in order:
 1. Append a dated `## Comments` entry: evidence (symbols, command + result, doc links) and the decision as 2–3 lettered options, recommendation first.
@@ -179,3 +179,10 @@ CI belongs to `$do-pr`.
 In the ticket file: flip `**Triage:**` to `done` and append a dated `## Comments` line linking the PR. **Never modify the parent PRD.** Then name the tickets this unblocks and stop — the next run takes the next ticket. (Write the tracker file only; do not commit it or run its scripts if the tracker lives in an externally-managed store — follow the repo's tracker config.)
 
 ✓ **Done when:** the ticket's `**Triage:**` reads `done` and a `## Comments` entry links the PR.
+
+## Bounded delegation
+
+Do routine work in the main session. If this host supports delegation, use at most
+two implementation helpers and one frontend reviewer per ticket, with distinct
+scopes and no nested delegation. Reuse helpers for follow-up work. Preserve this
+host’s configured models; Claude-specific Sonnet/Opus routing belongs to Claude.

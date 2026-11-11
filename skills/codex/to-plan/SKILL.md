@@ -22,7 +22,7 @@ If the user named a file, use it. Otherwise list the intake inbox — `memory/Ag
 For each distinct point in the raw file — no gold-plating, no adjacent ideas:
 
 - **Code:** locate the files/modules the point touches (`rg`, glob). Record exact paths.
-- **Vault:** grep the catalog (`memory/scripts/output/catalog.jsonl`) and `rg memory/AgCore` for the point's terms. Read only hits: matching glossary terms (owning context's `CONTEXT.md`), relevant accepted ADRs, and any existing plan that overlaps — overlap is a finding, link it, don't duplicate it.
+- **Vault:** `rg` the point's terms under `memory/AgCore`, and name a folder when you can (the owning context, `planning/`). Read only hits: matching glossary terms (owning context's `CONTEXT.md`), relevant accepted ADRs, and any existing plan that overlaps — overlap is a finding, link it, don't duplicate it.
 - Classify each point: *bug fix* / *structural refactor* / *feature* / *improvement*, with a verdict (e.g. Worth exploring · Quick win · Needs grilling).
 
 ✓ **Done when:** every point has real file paths, its vault refs, and a classification — and nothing outside the raw file's points was researched.

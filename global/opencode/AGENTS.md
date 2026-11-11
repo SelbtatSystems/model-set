@@ -27,7 +27,8 @@
 
 - **Context7 MCP** — fetch current, version-accurate library/framework docs instead of relying on training data (details: `context7-mcp` skill).
 - **agent-browser skill** — browser debugging, screenshots, testing, reading console errors. `snapshot -i` before interacting; re-snapshot after navigation (refs invalidate on page changes).
-- **Subagent models (Claude Code)** — research, design-decision, and planning subagents inherit the session model (no override). All other subagent tasks (implementation, mechanical sweeps, routine work) run **Opus 5** (`model: "opus"`) at **high reasoning effort** wherever effort is settable (e.g. Workflow `agent()`); the Agent tool has no effort knob — model override only. **Exception** — all agent-browser browser testing and frontend testing (e.g. the `frontend-review` agent, agent-browser QA sweeps) run **Sonnet 5** (`model: "sonnet"`) at **high reasoning effort**.
+- **Subagent models (Claude Code)** — use **Opus** (`model: "opus"`) for implementation, research, planning, searches, mechanical work, code/spec/standards reviews, and security reviews. Use **high reasoning effort** wherever effort is settable. **Exception:** frontend/browser testing and design reviews use **Sonnet 5.5** (Agent call: `model: "sonnet"`; agent frontmatter: `claude-sonnet-5-5`) at high effort. Do not invoke maximum-review pipelines that spawn reviewer trees. The Agent call sets the model; custom-agent frontmatter sets effort.
+- **Delegation cost** — do short tasks in the parent. Give each helper one bounded task; no reviewer-per-file, reviewer-per-angle, or verifier-per-finding trees. Helpers do not delegate unless the user explicitly requests that structure. Merge reviews follow the bounded do-pr workflow; simple checks do not need another agent.
 
 ## Credentials
 

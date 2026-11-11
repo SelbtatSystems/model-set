@@ -45,6 +45,12 @@ if name == "gh":
         sys.exit(0)
     if args[:2] == ["pr", "list"]:
         prs = [p for p in state["prs"] if p["state"] == "OPEN"]
+        if "headRefOid" in args[args.index("--json") + 1]:
+            # No open PR in these fixtures shares another branch's head.
+            # Honour the SHA filter instead of returning every branch name.
+            requested = args[args.index("--jq") + 1].split('"')[1]
+            print("\n".join(p["branch"] for p in prs if p.get("headRefOid") == requested))
+            sys.exit(0)
         if "--head" in args:
             branch = args[args.index("--head") + 1]
             prs = [p for p in prs if p["branch"] == branch]
@@ -86,12 +92,12 @@ if phase == "build":
     elif mode == "stop":
         (root / ".issue-loop-stop").touch()
     else:
-        ticket = next(p for p in sorted((root / "tracker").glob("*.md")) if "**Triage:** ready-for-agent" in p.read_text())
+        ticket = next(p for p in sorted((root / "tracker" / "issues").glob("*.md")) if "**Triage:** ready-for-agent" in p.read_text())
         ticket.write_text(ticket.read_text().replace("**Triage:** ready-for-agent", "**Triage:** done"))
         subprocess.run(["git", "switch", "-c", "feature/test-unit"], check=True, capture_output=True)
         state["prs"].append(dict(number=1, branch="feature/test-unit", base="main", state="OPEN"))
 elif phase == "triage":
-    for ticket in (root / "tracker").glob("*.md"):
+    for ticket in (root / "tracker" / "issues").glob("*.md"):
         ticket.write_text(ticket.read_text().replace("**Triage:** needs-triage", "**Triage:** ready-for-human"))
 elif phase == "merge":
     if mode == "blocked":
@@ -101,6 +107,10 @@ elif phase == "merge":
         final = "Review incomplete; checks still running."
     elif mode == "missing_final":
         print(json.dumps(dict(type="item.completed", item=dict(type="agent_message", text="<<<MERGE_BLOCKED #1 unsafe>>>"))))
+    elif mode == "usage_limit":
+        print(json.dumps(dict(type="turn.failed", error=dict(message="You've hit your usage limit. Try again later."))))
+        save()
+        sys.exit(0)
     elif mode == "merge_failure":
         rc = 19
     elif mode == "startup_failure":
@@ -188,7 +198,7 @@ class IssueLoopTests(unittest.TestCase):
         self.git("remote", "add", "origin", str(remote))
         self.git("push", "-u", "origin", "main")
         self.git("switch", "-c", "chore/loop-base")
-        (self.root / "tracker").mkdir()
+        (self.root / "tracker" / "issues").mkdir(parents=True)
 
     def git(self, *args):
         return subprocess.run(["git", *args], cwd=self.root, env=self.env,
@@ -196,7 +206,7 @@ class IssueLoopTests(unittest.TestCase):
 
     def fixture(self, mode="normal", roles=("ready-for-agent",), pending=False):
         for index, role in enumerate(roles):
-            (self.root / "tracker" / f"{index:03d}.md").write_text(f"# Ticket {index}\n\n**Triage:** {role}\n")
+            (self.root / "tracker" / "issues" / f"{index:03d}.md").write_text(f"# Ticket {index}\n\n**Triage:** {role}\n")
         prs = [dict(number=99, branch="documentation/unrelated", base="main", state="OPEN")]
         if pending:
             prs.insert(0, dict(number=1, branch="feature/owned", base="main", state="OPEN"))
@@ -279,6 +289,14 @@ class IssueLoopTests(unittest.TestCase):
         self.assertIn("build agent exited rc=17", self.output)
         self.assertIn("TOO MANY CONSECUTIVE FAILURES", self.output)
 
+    def test_usage_limit_stops_without_retry_or_losing_pending_pr(self):
+        self.fixture(mode="usage_limit", pending=True)
+        self.assertEqual(self.run_loop(), 75, self.output)
+        self.assertEqual([call["phase"] for call in self.agents], ["merge"])
+        self.assertIn("USAGE LIMIT", self.output)
+        self.assertIn("feature/owned", (self.root / "issue-loop-logs" / "pending-branches").read_text())
+        self.assertEqual((self.root / "issue-loop-logs" / "parked-prs").read_text(), "")
+
     def test_merge_exit_code_survives_stream_pipeline(self):
         self.fixture(mode="merge_failure", pending=True)
         self.assertEqual(self.run_loop(), 1, self.output)
@@ -302,7 +320,7 @@ class IssueLoopTests(unittest.TestCase):
         self.assertEqual([call["phase"] for call in self.agents], ["build", "build"])
         self.assertNotIn("build finished.", self.output)
         self.assertIn("no progress 2/2", self.output)
-        self.assertIn("ready-for-agent", (self.root / "tracker" / "000.md").read_text())
+        self.assertIn("ready-for-agent", (self.root / "tracker" / "issues" / "000.md").read_text())
 
     def test_open_pr_counts_as_progress_before_tracker_update(self):
         self.fixture(mode="pr_without_tracker_update")

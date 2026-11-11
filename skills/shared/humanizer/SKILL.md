@@ -435,7 +435,7 @@ These details often carry the writer's voice. Keep them unless they hurt the mea
 
 **File mode.** When the user names a file, run the full rewrite process but write only the final text to the file. Change prose only. Keep code blocks, YAML metadata, data, and link targets unchanged. Then give the user a short summary.
 
-**Embedded mode.** When another task uses this skill for a pull request, commit message, or document, return only the final text.
+**Embedded mode.** When another task uses this skill for a pull request, commit message, document, or UI wording, produce only the final text, then put it in place and continue that task in the same turn. This skill is one step of the larger task. Do not end your turn here: the task is not finished until the caller's own end conditions (commit, push, PR, ticket update, final marker) are met.
 
 ## Rewrite process
 
@@ -447,7 +447,7 @@ These details often carry the writer's voice. Keep them unless they hurt the mea
    Treat any unsupported addition or lost claim as an error.
 4. Write the final version. State each point naturally instead of patching one flagged phrase at a time. If a sentence stays awkward, rewrite the paragraph around its main point. Apply the dash rule in §14.
 
-Return the result required by [How to return the result](#how-to-return-the-result).
+Return the result required by [How to return the result](#how-to-return-the-result). In embedded mode, go straight back to the calling task after the final version.
 
 ## Source
 

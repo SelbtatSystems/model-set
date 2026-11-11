@@ -12,9 +12,9 @@ Use this skill only for AgCore/MyFarmJob data-layer work. If the current workspa
 Read these before planning or editing:
 
 1. `CONTEXT-MAP.md`
-2. `memory/AgCore/db/CONTEXT.md`
+2. `memory/AgCore/db/CONTEXT.md` — only its `## Core terms (read first)` section (stop at `## Language`). The file is ~50k tokens: search it for each table, key or bucket you touch (`rg -n "<name>" memory/AgCore/db/CONTEXT.md`); never read it whole.
 3. `memory/AgCore/db/SECURITY.md`
-4. Relevant accepted ADRs in `memory/AgCore/db/docs/adr/`, if any exist
+4. Relevant accepted ADRs: search `memory/AgCore/db/ADR-INDEX.md` for the area, then open the matches in `memory/AgCore/db/docs/adr/`
 
 Completion criterion: know the current schema/storage source of truth, security invariants, and validation commands before touching files.
 

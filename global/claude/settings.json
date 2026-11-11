@@ -68,11 +68,13 @@
       "/home/sven/Nextcloud/memory"
     ]
   },
+  "model": "opus",
   "enabledMcpjsonServers": [
-    "postgres",
     "context7"
   ],
-  "disabledMcpjsonServers": [],
+  "disabledMcpjsonServers": [
+    "postgres"
+  ],
   "disableClaudeAiConnectors": true,
   "skillOverrides": {
     "data-story-telling": "user-invocable-only",
@@ -98,7 +100,13 @@
     "to-user-docs": "user-invocable-only",
     "writing-for-agents": "name-only",
     "issue-loop": "user-invocable-only",
-    "teach": "user-invocable-only"
+    "teach": "user-invocable-only",
+    "design-loop": "user-invocable-only",
+    "mapbox-data-visualization-patterns": "user-invocable-only",
+    "mapbox-style-quality": "user-invocable-only",
+    "mapbox-web-performance-patterns": "user-invocable-only",
+    "transitions-dev": "user-invocable-only",
+    "transitions-polish": "user-invocable-only"
   },
   "disableArtifact": true,
   "statusLine": {
@@ -107,7 +115,8 @@
   },
   "enabledPlugins": {
     "stripe@claude-plugins-official": false,
-    "warp@claude-code-warp": true
+    "warp@claude-code-warp": true,
+    "sogni-creative-agent@skills-dir": false
   },
   "extraKnownMarketplaces": {
     "claude-code-warp": {
@@ -123,10 +132,11 @@
       "effortLevel": "xhigh"
     },
     "claude-opus-5-5": {
-      "effortLevel": "xhigh"
+      "effortLevel": "high"
     }
   },
   "tui": "fullscreen",
+  "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
   "theme": "dark-ansi",
   "autoMode": {

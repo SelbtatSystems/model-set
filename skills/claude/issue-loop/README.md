@@ -11,7 +11,7 @@ All agents are `claude`; you choose the models.
 
 ```bash
 cd ~/Projects/agcore-wt2                                    # one loop per worktree
-~/.codex/skills/issue-loop/scripts/issue-loop.sh memory/AgCore/planning/issues/<feature-slug>
+~/.claude/skills/issue-loop/scripts/issue-loop.sh memory/AgCore/planning/issues/<feature-slug>
 ```
 
 Run it inside **herdr** (see `memory/_cheat-sheets/herdr.md`) — the loop dies with its terminal otherwise.
@@ -24,19 +24,20 @@ cd ~/Projects/agcore-wt2 && touch .issue-loop-stop
 
 It finishes the phase it is in (never mid-merge) and exits. Ctrl-C is a hard stop.
 
-### Choosing models
+### Coordinator models and accounts
 
 ```bash
-# default: Fable builds + triages, Opus reviews and merges
-~/.codex/skills/issue-loop/scripts/issue-loop.sh <folder>
+# Opus builds, triages and coordinates bounded reviews and merges
+~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
 
-# Opus everywhere
-MAIN_MODEL=opus ~/.codex/skills/issue-loop/scripts/issue-loop.sh <folder>
-
-# Fable builds, Sonnet merges, merge phase on the second account
-PR_MODEL=sonnet PR_CONFIG_DIR=~/.claude-max-2 \
-  ~/.codex/skills/issue-loop/scripts/issue-loop.sh <folder>
+# Same models, merge phase on the second account
+PR_CONFIG_DIR=~/.claude-max-2 \
+  ~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
 ```
+
+Code/spec/standards and security reviewers use Opus at high effort. Only frontend/browser
+reviews use Sonnet 5.5. Merge review is limited to those two Opus reviewers and,
+when needed, one Sonnet frontend reviewer; no nested reviewer trees.
 
 ### Before the first run
 
@@ -104,8 +105,8 @@ folder. `NEEDS-HUMAN.md` is the thing to read when you come back.
 
 | Env | Default | Meaning |
 |---|---|---|
-| `MAIN_MODEL` | `fable` | build + triage agent — the `fable` alias resolves to Claude Fable 5.1 |
-| `PR_MODEL` | `opus` | merge agent |
+| `MAIN_MODEL` | `opus` (fixed) | build + triage coordinators; environment overrides are ignored |
+| `PR_MODEL` | `opus` (fixed) | merge coordinator; environment overrides are ignored |
 | `MAIN_CONFIG_DIR` / `PR_CONFIG_DIR` | `~/.claude` | Claude account per phase, e.g. `~/.claude-max-2` |
 | `CYCLE_MINUTES` | `30` | wait between cycles |
 | `MAX_FAILS` | `3` | consecutive failed/stalled cycles before stopping |
@@ -142,7 +143,7 @@ File contents, command output and diffs are omitted here but written in full to
 | `MIGRATION PULLED` / `MERGED` | 0 | The migration could destroy local dev data (`DROP TABLE/COLUMN/SCHEMA`, `TRUNCATE`, `DELETE FROM`, column-type rewrite, rename), or it failed to apply (see `db.log`). Apply it yourself, then restart. Everything else — including `DROP POLICY`/`FUNCTION`/`INDEX` and `DROP MATERIALIZED VIEW` (derived rows its own refresh rebuilds; it cannot be altered in place) — applies automatically and never stops the loop. |
 | `PRE-FLIGHT FAILED` | 1 | Usually a bad folder path, a dirty tree, or a tracker with no `**Triage:**` lines. |
 | `GIT STATE NEEDS A HUMAN` | 1 | Diverged branch or uncommitted work. Resolve, restart. |
-| `REPEATED INCONCLUSIVE MERGES` | 1 | Merge agent gave up 3×. Merge by hand, or try `PR_MODEL=opus`. |
+| `REPEATED INCONCLUSIVE MERGES` | 1 | Merge agent gave up 3×. Inspect the incomplete gate before restarting. |
 | `TOO MANY CONSECUTIVE FAILURES` | 1 | See below. |
 
 **"No progress" warnings** mean the build agent opened no PR and closed no ticket. The usual cause

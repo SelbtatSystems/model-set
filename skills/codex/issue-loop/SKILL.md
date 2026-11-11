@@ -66,3 +66,10 @@ operator reference, logs, locks, and restart commands.
 Run one loop per worktree and one per tracker. The worktree has its own Docker
 stack and DB. Keep the current PR ledger when restarting. The docs loop owns its
 own branches; this runner does not take them.
+
+## Review retries and usage limits
+
+A usage-limit result stops the runner with pending work retained. Restart after
+capacity returns. Reuse only completed review reports matching both current base
+and head SHAs, with findings resolved. The do-pr skill bounds independent review
+sessions; failed or partial reports never satisfy a merge gate.

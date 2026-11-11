@@ -109,7 +109,13 @@ run_codex() {  # run_codex <model-or-empty> <effort-or-empty> <logfile> <prompt>
   codex exec --json --sandbox danger-full-access -c approval_policy=never \
     "${model_args[@]}" --cd "$REPO_ROOT" --output-last-message "$logfile.final.txt" \
     "$prompt" </dev/null 2>&1 | tee "$logfile" | render
-  return "${PIPESTATUS[0]}"
+  local rc=${PIPESTATUS[0]} result_rc
+  python3 "$SCRIPT_DIR/agent-result.py" "$logfile"; result_rc=$?
+  if [ "$result_rc" -eq 75 ]; then
+    stop_loop "USAGE LIMIT — review incomplete; pending PR retained. Resume after capacity returns." 75
+  fi
+  [ "$rc" -ne 0 ] && return "$rc"
+  return "$result_rc"
 }
 
 # ---- tracker-folder state (deterministic, script-side) --------------------
@@ -268,6 +274,8 @@ preflight() {
   fi
   [ "$BASE_BRANCH" = "$MAIN_BRANCH" ] \
     && warn "BASE_BRANCH == ${MAIN_BRANCH}: running on main itself (OK only in the worktree that owns main)."
+  command -v python3 >/dev/null 2>&1 || { err "python3 not on PATH"; return 1; }
+  [ -r "$SCRIPT_DIR/agent-result.py" ] || { err "agent-result.py is missing"; return 1; }
   command -v gh     >/dev/null 2>&1 || { err "gh not on PATH";     return 1; }
   command -v codex  >/dev/null 2>&1 || { err "codex not on PATH"; return 1; }
   codex login status >/dev/null 2>&1 || { err "Codex not authenticated (run: codex login)"; return 1; }
@@ -592,8 +600,8 @@ drain_pending() {
     if [ "$attempt" -gt 1 ]; then
       prompt="\$do-pr auto #${pr} — RETRY (attempt ${attempt}). A previous run attempted \
 this PR and ended without merging it and without a sentinel. Read the existing review evidence \
-and compare it with the current PR head. Reuse completed checks only when they still cover this \
-head; complete missing or invalidated do-pr gates. Confirm gh pr view and gh pr checks --watch \
+and compare both base and head SHAs. Reuse only complete checks with resolved findings for these \
+revisions; complete missing or invalidated do-pr gates. Confirm gh pr view and gh pr checks --watch \
 --interval 30; merge only when every do-pr gate passes and emit the sentinel. If you find \
 a real blocker, comment it on the PR and emit <<<MERGE_BLOCKED #${pr} reason>>>. End with exactly \
 one sentinel — a summary without one is a failed run."

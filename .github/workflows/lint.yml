@@ -50,3 +50,12 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y shellcheck
           shellcheck -S error scripts/*.sh scripts/lib/*.sh
+
+  loop-regressions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Offline review limits and runner tests
+        run: |
+          python3 scripts/test_loop_review_limits.py
+          python3 skills/codex/issue-loop/scripts/test_issue_loop.py

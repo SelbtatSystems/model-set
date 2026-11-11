@@ -9,7 +9,7 @@ metadata:
 
 A discipline for hard bugs. Skip phases only when explicitly justified.
 
-When exploring the codebase, read the project's domain glossary (its `CONTEXT.md`, if it exists) to get a clear mental model of the relevant modules, and check ADRs in the area you're touching.
+When exploring the codebase, read the project's domain glossary (its `CONTEXT.md`, if it exists) to get a clear mental model of the relevant modules, and check ADRs in the area you're touching. Load it the way the repo's `docs/agents/domain.md` says when that file exists: a large glossary is searched, not read whole, and ADRs are found through an index when the repo keeps one.
 
 ## Redact
 

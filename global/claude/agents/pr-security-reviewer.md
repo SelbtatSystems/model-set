@@ -17,8 +17,12 @@ then collect `git diff <base>...<head>`, changed paths, and commit history. Fail
 commands, unreadable files, revision mismatch, or truncated coverage mean
 **incomplete**, never clean. An empty diff is valid only after successful collection.
 
-1. Learn the repo's security rules and established patterns. Read the owning
-   SECURITY.md, relevant ADRs, adjacent guards, and sanitisation/encryption code.
+1. Learn the repo's security rules and established patterns. Read the rules of
+   the owning SECURITY.md in full. When it also carries a long register of
+   findings or danger zones, read the open entries and search the rest for the
+   modules the diff touches; never read a findings log whole. Find relevant
+   ADRs through the context's ADR index when one exists. Then read adjacent
+   guards and sanitisation/encryption code.
 2. For each changed production path, trace untrusted input through authentication,
    authorisation and tenant boundaries to sensitive operations and returned data.
    Check server permissions/RLS, ID-based object access, session/JWT lifecycle,

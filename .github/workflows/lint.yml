@@ -59,3 +59,4 @@ jobs:
         run: |
           python3 scripts/test_loop_review_limits.py
           python3 skills/codex/issue-loop/scripts/test_issue_loop.py
+          python3 skills/codex/issue-loop/scripts/test_build_merge_loops.py

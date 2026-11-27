@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+"""Throughput report for the build and merge loops, from loop-metrics.tsv. Read-only.
+
+Usage: loop-report [--since 7d] [--file PATH] [--now ISO-UTC]
+  --since  window length: Nd, Nh or Nm, or a start date YYYY-MM-DD (UTC). Default 7d.
+  --file   default: $LOOP_STATE_DIR/loop-metrics.tsv (~/.local/state/agcore/loop-metrics.tsv)
+  --now    end of the window (tests); default: the current time
+
+Metrics lines (written by build-loop.sh and merge-loop.sh):
+  time  loop  worktree  event  pr/ticket  seconds
+  loop     build:<tracker> | merge
+  events   build_start, build_end:<ok|failed|no_progress|no_work>, queued,
+           merge_start, merge_end:<merged|blocked|inconclusive|closed>,
+           dequeued:<merged|closed|parked> (seconds = time since queued), idle_start, idle_end
+
+The phase-2 rule of thumb (ticket 03): add merge capacity only if more than 2 PRs wait
+for more than ~20 % of the time.
+"""
+import argparse
+import collections
+import datetime as dt
+import math
+import os
+import re
+import statistics
+import sys
+
+UTC = dt.timezone.utc
+PHASE2_SHARE = 20.0
+
+
+def parse_time(text):
+    return dt.datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+
+
+def window_start(since, now):
+    match = re.fullmatch(r"(\d+)([dhm])", since)
+    if match:
+        unit = dict(d="days", h="hours", m="minutes")[match.group(2)]
+        return now - dt.timedelta(**{unit: int(match.group(1))})
+    return dt.datetime.strptime(since, "%Y-%m-%d").replace(tzinfo=UTC)
+
+
+def read_events(path):
+    events = []
+    with open(path, errors="replace") as stream:
+        for line in stream:
+            cells = line.rstrip("\n").split("\t")
+            if len(cells) != 6:
+                continue                      # a hand edit or a torn line: skip, never guess
+            try:
+                when = parse_time(cells[0])
+            except ValueError:
+                continue
+            seconds = int(cells[5]) if cells[5].lstrip("-").isdigit() else None
+            events.append(dict(time=when, loop=cells[1], worktree=cells[2], event=cells[3],
+                               ref=cells[4], seconds=seconds))
+    events.sort(key=lambda e: e["time"])      # stable: same-second lines keep file order
+    return events
+
+
+def duration(seconds):
+    if seconds is None:
+        return "-"
+    return "%.1f m" % (seconds / 60) if seconds < 3600 else "%.1f h" % (seconds / 3600)
+
+
+def p90(values):
+    ordered = sorted(values)
+    return ordered[max(0, math.ceil(0.9 * len(ordered)) - 1)]
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Build/merge loop throughput report.")
+    parser.add_argument("--since", default="7d")
+    state_dir = os.environ.get("LOOP_STATE_DIR", os.path.expanduser("~/.local/state/agcore"))
+    parser.add_argument("--file", default=os.path.join(state_dir, "loop-metrics.tsv"))
+    parser.add_argument("--now")
+    args = parser.parse_args()
+
+    if not os.path.isfile(args.file):
+        print("loop-report: no metrics file at %s — no build or merge loop has run yet" % args.file,
+              file=sys.stderr)
+        return 1
+    now = parse_time(args.now) if args.now else dt.datetime.now(UTC).replace(microsecond=0)
+    start = window_start(args.since, now)
+    events = read_events(args.file)
+    inside = [e for e in events if start <= e["time"] <= now]
+    window_seconds = max(1, (now - start).total_seconds())
+
+    # The tracker of each PR comes from its `queued` line, which may predate the window.
+    tracker_of = {e["ref"]: e["loop"].split(":", 1)[1] for e in events
+                  if e["event"] == "queued" and e["loop"].startswith("build:")}
+
+    print("loop-report — %s → %s UTC (%s)   %s" % (start.strftime("%Y-%m-%d %H:%M"),
+                                                 now.strftime("%Y-%m-%d %H:%M"), args.since, args.file))
+
+    # ---- built / merged per day per tracker ----
+    per_day = collections.defaultdict(lambda: [0, 0])
+    for e in inside:
+        day = e["time"].strftime("%Y-%m-%d")
+        if e["event"] == "build_end:ok" and e["loop"].startswith("build:"):
+            tickets = [t for t in e["ref"].split(",") if t and t != "-"]
+            per_day[(day, e["loop"].split(":", 1)[1])][0] += max(1, len(tickets))
+        elif e["event"] == "dequeued:merged":
+            per_day[(day, tracker_of.get(e["ref"], "?"))][1] += 1
+    print("\nTickets built and merged per day per tracker")
+    print("%-10s  %-15s %5s %7s" % ("day", "tracker", "built", "merged"))
+    for (day, tracker), (built, merged) in sorted(per_day.items()):
+        print("%-10s  %-15s %5d %7d" % (day, tracker, built, merged))
+    if not per_day:
+        print("(none in this window)")
+
+    # ---- durations ----
+    series = [
+        ("build time (ok builds)", [e["seconds"] for e in inside if e["event"] == "build_end:ok"]),
+        ("build time (all builds)", [e["seconds"] for e in inside if e["event"].startswith("build_end:")]),
+        ("merge time (merged runs)", [e["seconds"] for e in inside if e["event"] == "merge_end:merged"]),
+        ("merge time (all runs)", [e["seconds"] for e in inside if e["event"].startswith("merge_end:")]),
+        ("queued → merged", [e["seconds"] for e in inside if e["event"] == "dequeued:merged"]),
+    ]
+    print("\n%-30s%3s %8s %8s" % ("Durations", "n", "median", "p90"))
+    for label, values in series:
+        values = [v for v in values if v is not None]
+        if values:
+            print("%-30s%3d %8s %8s" % (label, len(values), duration(statistics.median(values)),
+                                        duration(p90(values))))
+        else:
+            print("%-30s%3d %8s %8s" % (label, 0, "-", "-"))
+
+    # ---- queue length over time ----
+    # Replay the whole file so the length at the window start is right, measure inside it.
+    # Waiting = queued and not the one PR the merge loop is working on right now.
+    length, merging, waiting_max, over_two = 0, 0, 0, 0.0
+    cursor = start
+
+    def waiting():
+        return max(0, length - merging)
+
+    for e in events:
+        if e["time"] > now:
+            break
+        if e["time"] > start:
+            if waiting() > 2:
+                over_two += (e["time"] - max(cursor, start)).total_seconds()
+            cursor = e["time"]
+        if e["event"] == "queued":
+            length += 1
+        elif e["event"].startswith("dequeued:"):
+            length = max(0, length - 1)
+        elif e["event"] == "merge_start":
+            merging = 1
+        elif e["event"].startswith("merge_end:"):
+            merging = 0
+        if e["time"] >= start:
+            waiting_max = max(waiting_max, waiting())
+    if waiting() > 2:
+        over_two += (now - max(cursor, start)).total_seconds()
+    share = 100.0 * over_two / window_seconds
+    print("\nQueue length")
+    print("max waiting PRs: %d   time with > 2 waiting: %.1f %%   now queued: %d" % (waiting_max, share, length))
+    verdict = "consider phase 2 (helper merge agent)" if share > PHASE2_SHARE else "stay in phase 1"
+    print("rule of thumb (phase 2 only if > 2 wait for > %d %% of the time): %s" % (PHASE2_SHARE, verdict))
+
+    # ---- idle time per loop ----
+    idle = collections.defaultdict(float)
+    open_idle = {}
+    for e in inside:
+        key = (e["loop"], e["worktree"])
+        if e["event"] == "idle_start":
+            open_idle[key] = e["time"]
+        elif e["event"] == "idle_end":
+            begun = open_idle.pop(key, None)
+            idle[key] += e["seconds"] if e["seconds"] is not None else (
+                (e["time"] - begun).total_seconds() if begun else 0)
+    for key, begun in open_idle.items():         # still idle at the end of the window
+        idle[key] += (now - begun).total_seconds()
+    for e in inside:                              # loops that ran but never idled
+        idle.setdefault((e["loop"], e["worktree"]), 0.0)
+    print("\nIdle time per loop")
+    print("%-24s %-28s %8s %7s" % ("loop", "worktree", "idle", "window"))
+    for (loop, worktree), seconds in sorted(idle.items()):
+        print("%-24s %-28s %8s %6.1f%%" % (loop, worktree, duration(seconds), 100.0 * seconds / window_seconds))
+    if not idle:
+        print("(no loop ran in this window)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

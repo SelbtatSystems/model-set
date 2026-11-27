@@ -335,6 +335,17 @@ class IssueLoopTests(unittest.TestCase):
         self.assertIn("STOP REQUESTED", self.output)
         self.assertFalse((self.root / ".issue-loop-stop").exists())
 
+    def test_unreachable_github_skips_cycles_then_stops_without_agents(self):
+        self.fixture(pending=True)
+        self.git("remote", "set-url", "origin", str(Path(self.tmp.name) / "missing.git"))
+        self.assertEqual(self.run_loop(NET_MAX_CYCLES="2", GH_RETRIES="2"), 1, self.output)
+        self.assertEqual(self.agents, [])
+        self.assertIn("git fetch failed, attempt 1/2", self.output)
+        self.assertIn("skipping this cycle (1/2 in a row)", self.output)
+        self.assertIn("GITHUB UNREACHABLE for 2 cycles in a row", self.output)
+        self.assertNotIn("GIT STATE NEEDS A HUMAN", self.output)
+        self.assertIn("feature/owned", (self.root / "issue-loop-logs" / "pending-branches").read_text())
+
     def test_authentication_failure_stops_before_git_sync_or_agents(self):
         self.fixture(mode="unauthenticated")
         self.assertEqual(self.run_loop(), 1, self.output)

@@ -293,10 +293,12 @@ docs-loop splits this in two (2026-10-05): `TOO MANY BLOCKED UNITS` (5 `DOCS_BLO
 read the queue's blocked reasons, they usually share one cause such as a red suite) and
 `TOO MANY FAILED DOCS RUNS` (3 runs with no sentinel — read the run logs).
 
-### `GITHUB UNREACHABLE for N cycles in a row` (docs-loop)
+### `GITHUB UNREACHABLE for N cycles in a row` (docs-loop, issue-loop)
 
-`git fetch` or `gh pr list` failed 6 cycles running (about 3 h). One failure only skips that cycle.
-Check the network and `git.log` / `gh.log` in the docs-loop log dir, then restart.
+`git fetch` (docs-loop: or `gh pr list`) failed 6 cycles running (about 3 h). One failure only skips
+that cycle; issue-loop first retries the fetch 5× over ~2.5 min (since 2026-11-27 — before that, one
+DNS blip stopped it with `GIT STATE NEEDS A HUMAN`). Check the network and `git.log` / `gh.log` in
+that loop's log dir, then restart.
 
 ### `DOCS SATURATED`
 

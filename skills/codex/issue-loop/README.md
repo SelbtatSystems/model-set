@@ -40,6 +40,7 @@ Before starting:
 | `PR_EFFORT` | Codex configuration | Review and merge reasoning effort |
 | `CYCLE_MINUTES` | `30` | Wait between cycles |
 | `MAX_FAILS` | `3` | Consecutive failures or stalls before stopping |
+| `NET_MAX_CYCLES` | `6` | Cycles in a row where `git fetch` fails (after `GH_RETRIES` tries, ~2.5 min) before stopping; one failure only skips that cycle |
 | `MAIN_BRANCH` | `main` | Integration branch |
 | `BASE_BRANCH` | Current branch | This worktree's base branch |
 | `AUTO_MIGRATE` | `1` | Apply eligible ledger-pending migrations; `0` hands pending work to a human |
@@ -139,6 +140,7 @@ work, return to the base branch, and keep the same tracker, settings and state.
 | Migration state needs a human | 0 | Read `db.log`; use the repository ledger procedure, then restart |
 | `PRE-FLIGHT FAILED` | 1 | Fix the reported folder, login or lock problem |
 | `GIT STATE NEEDS A HUMAN` | 1 | Resolve dirty or diverged work without discarding it |
+| `GITHUB UNREACHABLE for N cycles in a row` | 1 | `git fetch` failed `NET_MAX_CYCLES` cycles running; check the network and `git.log` |
 | Repeated failures, inconclusive merges, stuck/unmerged PRs | 1 | Read phase logs and GitHub state before restarting |
 
 ## Verify the runner

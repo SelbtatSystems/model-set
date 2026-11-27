@@ -110,6 +110,7 @@ folder. `NEEDS-HUMAN.md` is the thing to read when you come back.
 | `MAIN_CONFIG_DIR` / `PR_CONFIG_DIR` | `~/.claude` | Claude account per phase, e.g. `~/.claude-max-2` |
 | `CYCLE_MINUTES` | `30` | wait between cycles |
 | `MAX_FAILS` | `3` | consecutive failed/stalled cycles before stopping |
+| `NET_MAX_CYCLES` | `6` | cycles in a row where `git fetch` fails (after `GH_RETRIES` tries, ~2.5 min) before stopping; one failure only skips that cycle |
 | `MAIN_BRANCH` | `main` | branch PRs target |
 | `BASE_BRANCH` | *(current HEAD)* | the worktree branch to run on |
 | `AUTO_MIGRATE` | `1` | apply **non-data-destroying** merged migrations to this worktree's DB and carry on; `0` = always stop for you |
@@ -143,6 +144,7 @@ File contents, command output and diffs are omitted here but written in full to
 | `MIGRATION PULLED` / `MERGED` | 0 | The migration could destroy local dev data (`DROP TABLE/COLUMN/SCHEMA`, `TRUNCATE`, `DELETE FROM`, column-type rewrite, rename), or it failed to apply (see `db.log`). Apply it yourself, then restart. Everything else — including `DROP POLICY`/`FUNCTION`/`INDEX` and `DROP MATERIALIZED VIEW` (derived rows its own refresh rebuilds; it cannot be altered in place) — applies automatically and never stops the loop. |
 | `PRE-FLIGHT FAILED` | 1 | Usually a bad folder path, a dirty tree, or a tracker with no `**Triage:**` lines. |
 | `GIT STATE NEEDS A HUMAN` | 1 | Diverged branch or uncommitted work. Resolve, restart. |
+| `GITHUB UNREACHABLE for N cycles in a row` | 1 | `git fetch` failed `NET_MAX_CYCLES` cycles running (~3 h at 30 m). Check the network and `git.log`, restart. |
 | `REPEATED INCONCLUSIVE MERGES` | 1 | Merge agent gave up 3×. Inspect the incomplete gate before restarting. |
 | `TOO MANY CONSECUTIVE FAILURES` | 1 | See below. |
 

@@ -29,6 +29,7 @@ BASE_BRANCH="${BASE_BRANCH:-}"            # this worktree's own branch; empty = 
 LOG_DIR="${LOG_DIR:-./issue-loop-logs}"
 STOP_FILE="${STOP_FILE:-.issue-loop-stop}"  # touch it to stop THIS loop only
 MAX_FAILS="${MAX_FAILS:-3}"               # consecutive failed cycles → stop
+NET_MAX_CYCLES="${NET_MAX_CYCLES:-6}"     # cycles in a row with GitHub unreachable → stop (~3h at 30m)
 GH_RETRIES="${GH_RETRIES:-5}"             # gh attempts before declaring GitHub unreachable
 GH_RETRY_BASE="${GH_RETRY_BASE:-15}"      # linear backoff seed: 15s, 30s, 45s, 60s → ~2.5min
 AUTO_MIGRATE="${AUTO_MIGRATE:-1}"         # 1 = apply ledger-pending migrations; 0 = always stop for a human
@@ -345,7 +346,24 @@ preflight() {
 }
 
 # ---- git prep (same contract as the other loops) ---------------------------
-# returns 1 = fatal (dirty / diverged / git failure)
+# git fetch with the same backoff as gh_retry (~2.5 min over GH_RETRIES attempts).
+# One DNS blip ("Could not resolve host: github.com") used to stop the loop with
+# GIT STATE NEEDS A HUMAN although nothing needed a human (wt3, 2026-11-27).
+fetch_retry() {
+  local attempt=1
+  while :; do
+    git fetch origin 2>>"$LOG_DIR/git.log" && return 0
+    if [ "$attempt" -ge "$GH_RETRIES" ]; then
+      err "git fetch failed ${attempt}x — GitHub unreachable; see $LOG_DIR/git.log"
+      return 1
+    fi
+    warn "git fetch failed, attempt ${attempt}/${GH_RETRIES} — retrying in $((attempt*GH_RETRY_BASE))s"
+    sleep $((attempt * GH_RETRY_BASE))
+    attempt=$((attempt+1))
+  done
+}
+
+# returns 1 = fatal (dirty / diverged / git failure); 2 = GitHub unreachable (skip the cycle)
 prep_worktree() {
   step "Syncing worktree branch '${BASE_BRANCH}' with origin/${MAIN_BRANCH}…"
   if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -353,7 +371,7 @@ prep_worktree() {
     return 1
   fi
   git switch "$BASE_BRANCH"  2>>"$LOG_DIR/git.log" || { err "switch to $BASE_BRANCH failed"; return 1; }
-  git fetch origin           2>>"$LOG_DIR/git.log" || { err "fetch failed"; return 1; }
+  fetch_retry || return 2
   git merge --ff-only "origin/${MAIN_BRANCH}" 2>>"$LOG_DIR/git.log" \
     || { err "cannot fast-forward ${BASE_BRANCH} to origin/${MAIN_BRANCH} (diverged?) — needs a human"; return 1; }
   ok "'${BASE_BRANCH}' up to date with origin/${MAIN_BRANCH}."
@@ -958,6 +976,7 @@ preflight || stop_loop "PRE-FLIGHT FAILED — fix the above and restart" 1
 
 cycle=0
 fails=0
+net_fails=0
 # Branches this run's builds checked out; run_build appends them. The final sweep adopts only
 # these. Not the whole HEAD reflog since the run started: that also holds branches a person or
 # another agent checked out here during the cycle wait, and the sweep auto-merged one (wt1
@@ -978,7 +997,19 @@ while :; do
   banner "CYCLE $cycle  —  $(ts)"
   reap_orphan_browsers
 
-  prep_worktree || stop_loop "GIT STATE NEEDS A HUMAN — stopping" 1
+  prep_worktree; prc=$?
+  if [ "$prc" -eq 2 ]; then
+    # Unreachable is not a git problem: nothing was touched, so wait a cycle and try again.
+    net_fails=$((net_fails+1))
+    [ "$net_fails" -ge "$NET_MAX_CYCLES" ] \
+      && stop_loop "GITHUB UNREACHABLE for ${net_fails} cycles in a row — check the network and $LOG_DIR/git.log, then restart" 1
+    warn "GitHub unreachable — skipping this cycle (${net_fails}/${NET_MAX_CYCLES} in a row)"
+    banner "CYCLE $cycle DONE — waiting ${CYCLE_MINUTES}m"
+    countdown $((CYCLE_MINUTES*60)) "until cycle $((cycle+1))"
+    continue
+  fi
+  [ "$prc" -eq 0 ] || stop_loop "GIT STATE NEEDS A HUMAN — stopping" 1
+  net_fails=0
   sync_database \
     || stop_loop "DATABASE MIGRATION STATE NEEDS A HUMAN — see $LOG_DIR/db.log, then restart the loop" 0
 

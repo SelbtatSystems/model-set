@@ -71,3 +71,13 @@ then stops — leaving the report and any open decisions listed in `NEEDS-HUMAN.
 
 Run one loop per worktree (each has its own Docker stack + DB). Safe next to the docs loop:
 this loop merges only branches it recorded; the docs loop merges only `documentation/*`.
+
+## Split runners
+
+`scripts/build-loop.sh <tracker-folder>` only builds: it runs the same `/do-issue`
+prompt, appends each opened PR to the shared queue `~/.local/state/agcore/pr-queue.tsv`
+and starts the next ticket at once. `scripts/merge-loop.sh` (no arguments, one per
+machine) runs `/do-pr auto #N` on queued PRs one at a time, oldest first. A blocker
+counts as done only after its PR merged. Knobs, safety stops and locks are the ones
+above; `scripts/loop-report --since 7d` prints the throughput report. See the
+README's "Split runners" section for the queue format and banners.

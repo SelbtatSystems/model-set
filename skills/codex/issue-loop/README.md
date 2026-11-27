@@ -152,3 +152,161 @@ python3 ~/.codex/skills/issue-loop/scripts/test_issue_loop.py
 
 The integration tests use temporary repositories and fake external commands.
 They do not build tickets, contact GitHub or mutate the real database.
+
+## Split runners: build loops + one merge loop
+
+`issue-loop.sh` builds, waits and merges in one row, so the builder is idle while
+its PR is reviewed. The split runners take the same skills with the same prompts and
+divide the work: each **build loop** only builds, and one **merge loop** runs
+`$do-pr auto` on every queued PR, one at a time, oldest first. `issue-loop.sh` is
+unchanged and stays the fallback.
+
+```bash
+# wt1 and wt2: one build loop per worktree, one tracker each
+cd ~/Projects/agcore-wt1
+~/.codex/skills/issue-loop/scripts/build-loop.sh memory/AgCore/planning/issues/<feature-slug>
+
+# wt3: the one merge loop of this machine (no arguments)
+cd ~/Projects/agcore-wt3
+~/.codex/skills/issue-loop/scripts/merge-loop.sh
+```
+
+Run each in its own herdr tab. Stop each one with `touch .issue-loop-stop` in its
+worktree. The before-starting checks above apply to every worktree.
+
+### Build loop cycle
+
+1. Fast-forward the base branch to `origin/main` and check the migration ledger,
+   with the same fetch retry and migration rules as `issue-loop.sh`.
+2. Count startable tickets. Triage runs only when nothing is startable.
+3. Build one ticket with the `issue-loop.sh` build prompt. When the build opens a
+   PR, append it to the PR queue and start the next cycle **at once**.
+4. Nothing startable: rewrite `NEEDS-HUMAN.md`, wait `CYCLE_MINUTES`, look again.
+
+The loop never calls `$do-pr` and never waits for a PR of its own.
+
+**Merged-blocker rule.** A blocker counts as done only when its `**Triage:**` is
+`done`/`wontfix` and it has no PR in `pr-queue.tsv` or `pr-parked.tsv`, or that PR
+is `MERGED` on GitHub. The build prompt then gets one more sentence:
+`Treat these tickets as NOT done, their PR has not merged: 03-x.md.`
+A blocker that merges while the loop waits makes its ticket startable.
+
+**Folder finished** only when nothing is startable, nothing needs triage, and the
+queue holds no PR of this tracker. Before it finishes, the loop queues any open PR
+that this run built but did not queue.
+
+### Merge loop cycle
+
+1. Queue empty: read the queue file again every `MERGE_POLL_MINUTES`. No GitHub
+   call, no git fetch, no agent.
+2. Otherwise sync the base branch and DB, then take the queued PR with the
+   **fewest attempts, then the oldest `queued_at`**, across all trackers.
+3. Check it on GitHub. Already merged or closed: drop the line. Head branch
+   differs from the queue: park it. Base is not `main` (stacked on an unmerged
+   parent): leave it queued and take the next one.
+4. Fetch the branch and check it out (see below), then run `$do-pr auto #N` with
+   the same prompt, retry prompt and `merge-attempts-<pr>` counter as `issue-loop.sh`.
+5. Read GitHub. **Merged:** drop the line, sync base and DB. **Blocked** (final
+   answer has `<<<MERGE_BLOCKED`): park it with the reason. **Inconclusive:** keep
+   it; it now has one attempt more, so the other PRs go first. After `MAX_FAILS`
+   attempts it is parked. **Closed:** drop the line.
+6. Switch back to the base branch and take the next PR at once.
+
+`$do-pr` runs `gh pr checkout` itself, and that works for a branch the worktree
+never had. Git refuses a branch that **another worktree of the same repository** has
+checked out, which is the state a build loop leaves when it stops right after a
+build. The merge loop checks that first and leaves such a PR queued. It also
+fetches and checks out the branch before the agent starts.
+
+Several **different** PRs that end inconclusive in a row (`MAX_FAILS` runs) stop the
+loop with `REPEATED INCONCLUSIVE MERGES`. That is an agent or machine problem;
+parking every PR would empty the queue.
+
+### Shared state
+
+One directory per machine: `LOOP_STATE_DIR` (default `~/.local/state/agcore`).
+Every write takes a `flock` and replaces the file with a temp file + `mv`; two
+writers at once never lose a line.
+
+| File | Columns (tab-separated, no header) | Writers |
+|---|---|---|
+| `pr-queue.tsv` | `queued_at` (ISO UTC) · `pr` · `branch` · `tracker` · `ticket(s)` (comma-separated, `-` if unknown) · `worktree` | build loops append; only the merge loop removes |
+| `pr-parked.tsv` | the six queue columns · `parked_at` · `reason` | merge loop |
+| `loop-metrics.tsv` | `time` · `loop` (`build:<tracker>` or `merge`) · `worktree` · `event` · `pr/ticket` · `seconds` | both |
+
+To re-queue a parked PR after you fixed it, move its line back to `pr-queue.tsv`
+with only the first six columns. The build loop lists its tracker's parked PRs in
+`NEEDS-HUMAN.md`. The merge loop drops a parked line when GitHub says the PR is
+merged or closed.
+
+Metrics events: `build_start`, `build_end:<ok|failed|no_progress|no_work>`, `queued`,
+`merge_start`, `merge_end:<merged|blocked|inconclusive|closed>`,
+`dequeued:<merged|closed|parked>` (seconds = time since `queued_at`), `idle_start`,
+`idle_end` (seconds idle). Print the report:
+
+```bash
+~/.codex/skills/issue-loop/scripts/loop-report --since 7d
+```
+
+It shows tickets built and merged per day per tracker, build and merge time
+(median, p90), queued → merged time, the largest number of waiting PRs and the
+share of time with more than 2 waiting, and idle time per loop.
+
+### Locks
+
+| Lock | Path | Shared with |
+|---|---|---|
+| worktree | `$LOG_DIR/loop.lock` | `issue-loop.sh`, both split runners |
+| tracker | `${XDG_CACHE_HOME:-~/.cache}/issue-loop/<tracker>.lock` | `issue-loop.sh`, build loop |
+| machine | `${XDG_CACHE_HOME:-~/.cache}/issue-loop/merge-loop.lock` | merge loop only |
+
+`issue-loop.sh` and the split runners refuse each other on one worktree or tracker.
+`issue-loop.sh` treats a lock as live only when its owner's command line contains
+`issue-loop.sh`, so each split runner restarts itself once with that text in its
+process name (`build-loop.sh[issue-loop.sh]`, `merge-loop.sh[issue-loop.sh]`).
+
+### Settings
+
+All `issue-loop.sh` settings above apply with the same defaults: `MAIN_MODEL`,
+`MAIN_EFFORT` (build, triage), `PR_MODEL`, `PR_EFFORT` (merge), `MAX_FAILS`,
+`NET_MAX_CYCLES`, `GH_RETRIES`, `GH_RETRY_BASE`, `AUTO_MIGRATE`, `MAIN_BRANCH`,
+`BASE_BRANCH`, `LOG_DIR`, `STOP_FILE`, `PRETTY_OUTPUT`. Differences:
+
+| Environment variable | Default | Meaning |
+|---|---|---|
+| `CYCLE_MINUTES` | `30` | Build loop: wait when nothing is startable. Both: wait after a cycle skipped because GitHub was unreachable |
+| `MAX_FAILS` | `3` | Build loop: failed cycles in a row. Merge loop: attempts per PR before parking it |
+| `MERGE_POLL_MINUTES` | `5` | Merge loop: how often it re-reads an empty queue |
+| `LOOP_STATE_DIR` | `~/.local/state/agcore` | Queue, parked and metrics files |
+
+Moving a worktree from `issue-loop.sh` to `build-loop.sh`: the merge loop does not
+read `issue-loop-logs/pending-branches`. The build loop warns at start when that
+ledger is not empty; merge or queue those PRs by hand.
+
+### Banners
+
+| Banner | Runner | Exit | Action |
+|---|---|---|---|
+| `BUILD LOOP STARTING — <tracker>` / `MERGE LOOP STARTING — <queue>` | both | – | Start |
+| `CYCLE N DONE — next cycle starts now (no merge wait)` | build | – | A build finished |
+| `MERGE CYCLE N DONE — next PR starts now` | merge | – | One PR attempted |
+| `ALL ISSUES DONE` | build | 0 | Folder worked and every PR of it merged |
+| `FOLDER FINISHED FOR AGENTS — N ticket(s) need a human, M PR(s) parked at a gate, K ready ticket(s) still blocked` | build | 2 | Read `NEEDS-HUMAN.md` |
+| `STOP REQUESTED` | both | 0 | Requested stop |
+| `USAGE LIMIT` | both | 75 | Restart after capacity returns; the queue is kept |
+| `DATABASE MIGRATION STATE NEEDS A HUMAN` / `MIGRATION MERGED` | both | 0 | Read `db.log`, apply, restart |
+| `PRE-FLIGHT FAILED` | both | 1 | Folder, login, `flock` or lock problem |
+| `GIT STATE NEEDS A HUMAN` | both | 1 | Dirty or diverged tree; `$do-pr` left changes |
+| `GITHUB UNREACHABLE for N cycles in a row` | both | 1 | Check the network and `git.log` |
+| `TOO MANY CONSECUTIVE FAILURES` | build | 1 | Read the build logs |
+| `REPEATED INCONCLUSIVE MERGES` | merge | 1 | Several PRs failed in a row; read the merge logs |
+| `PR QUEUE WRITE FAILED` | build | 1 | Fix `pr-queue.tsv` permissions, queue the named PR, restart |
+
+### Verify the split runners
+
+```bash
+python3 ~/.codex/skills/issue-loop/scripts/test_build_merge_loops.py
+```
+
+The tests run both twins (Codex, and Claude with the same fake as `claude`) against
+temporary repositories, fake `gh`, agents, `npm` and `sleep`.

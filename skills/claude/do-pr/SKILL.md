@@ -9,7 +9,7 @@ Take a pull request from open to merged without shipping a regression. Inputs: a
 
 The organizing lever is **risk tier** — cheap checks run on every PR, expensive ones scale with risk. One **gate** is absolute: no PR merges while an unpatched high/critical security finding lives in the diff. The agent patches those, not the user.
 
-The security reviewer always runs on **Opus at high effort**. The code/spec/standards reviewer follows the risk tier (below). Browser work runs on **Sonnet 5.5** at high effort, code research on **Sonnet 5.5** at high effort (`code-researcher`), and CI waits on **Haiku** (`ci-waiter`).
+The security reviewer always runs on **Opus at high effort**. The code/spec/standards reviewer follows the risk tier (below). Browser work runs on **Sonnet 5.5** at high effort, code research on **Sonnet 5.5** at xhigh effort (`code-researcher`), and CI waits on **Haiku** (`ci-waiter`).
 
 This skill uses two direct reviewers: `pr-code-reviewer` for correctness, spec and standards, and `pr-security-reviewer` for an independent security pass. The parent patches findings and runs static checks, tests, runtime verification and CI. Do not invoke the built-in code-review/security-review/simplify pipelines or two-axis-review inside this workflow: their nested reviewers duplicate these passes.
 
@@ -44,7 +44,7 @@ Use at most **two review roles plus one frontend/browser reviewer** for a PR sna
 
 Two helpers outside the review budget, because they save your context:
 
-- **`code-researcher`** (Sonnet 5.5, high) — for any question that needs more than ~3 searches or file reads. Read a file yourself only when you are about to edit it.
+- **`code-researcher`** (Sonnet 5.5, xhigh; deep report with blast radius) — for any question that needs more than ~3 searches or file reads. Read a file yourself only when you are about to edit it.
 - **`ci-waiter`** (Haiku) — for every CI wait in layer 7. One-shot `gh` commands (`gh pr view`, `gh pr ready`, `gh pr merge`) stay with you.
 
 Give each reviewer the absolute worktree path, exact base and HEAD SHAs, spec path and applicable risk areas. Require read-only work, no PR actions, no sentinels, and a complete/ incomplete verdict with covered revisions and concrete findings. Start the security pass after correctness fixes are committed, so it reviews the code that may ship. The parent triages and verifies findings itself.

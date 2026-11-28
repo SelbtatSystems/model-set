@@ -22,7 +22,7 @@ Keep delegation bounded: at most two implementation helpers plus one frontend re
 
 **Three jobs always go to a cheaper helper, never to you.** Every turn of yours re-sends your whole context, so a job you do yourself costs far more than the same job in a small helper:
 
-- **Code research** — a question that needs more than ~3 searches or file reads (where something lives, how a flow works, which callers a change touches): `code-researcher` (Sonnet 5.5, high). Ask one question; you get an answer with `file:line` evidence. Read a file yourself only when you are about to edit it.
+- **Code research** — a question that needs more than ~3 searches or file reads (where something lives, how a flow works, which callers a change touches): `code-researcher` (Sonnet 5.5, xhigh). Ask one question; you get a deep report — moving parts, flow, blast radius, guards, tests, risks — with `file:line` evidence. Read a file yourself only when you are about to edit it.
 - **Browser work** — every `agent-browser` step and every screenshot: `browser-check` (Sonnet 5.5, high) for pass/fail checks, `frontend-review` (Sonnet 5.5, high) for the ticket's browser critique. Never run `agent-browser` or read a screenshot yourself.
 - **Waiting on GitHub** — any CI run or PR check you must wait for: `ci-waiter` (Haiku). Give it the repo path, the PR or run ID and the HEAD SHA; you stay blocked on it, and it answers green, or red with the failed job's log tail. You diagnose and fix. One-shot `gh` commands (`gh pr create`, `gh pr view`) stay with you.
 

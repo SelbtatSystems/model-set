@@ -276,7 +276,7 @@ All `issue-loop.sh` settings above apply with the same defaults: `MAIN_MODEL`,
 |---|---|---|
 | `CYCLE_MINUTES` | `30` | Build loop: wait when nothing is startable. Both: wait after a cycle skipped because GitHub was unreachable |
 | `MAX_FAILS` | `3` | Build loop: failed cycles in a row. Merge loop: attempts per PR before parking it |
-| `MERGE_POLL_MINUTES` | `5` | Merge loop: how often it re-reads an empty queue |
+| `MERGE_POLL_MINUTES` | `2` | Merge loop: how often it re-reads an empty queue |
 | `LOOP_STATE_DIR` | `~/.local/state/agcore` | Queue, parked and metrics files |
 
 Moving a worktree from `issue-loop.sh` to `build-loop.sh`: the merge loop does not

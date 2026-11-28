@@ -33,14 +33,18 @@ NET_MAX_CYCLES="${NET_MAX_CYCLES:-6}"     # cycles in a row with GitHub unreacha
 GH_RETRIES="${GH_RETRIES:-5}"             # gh attempts before declaring GitHub unreachable
 GH_RETRY_BASE="${GH_RETRY_BASE:-15}"      # linear backoff seed: 15s, 30s, 45s, 60s → ~2.5min
 AUTO_MIGRATE="${AUTO_MIGRATE:-1}"         # 1 = apply ledger-pending migrations; 0 = always stop for a human
-MAIN_MODEL="opus"                       # fixed: build + triage coordinators always use Opus
-PR_MODEL="opus"                         # fixed: the merge coordinator always uses Opus
-# Per-phase thinking level: low|medium|high|xhigh|max. EMPTY IS NOT "no thinking" — it means the
-# flag is never passed, so the level comes from the account's settings.json `effortLevel`, which is
-# how every Claude phase has been getting `high` since long before this knob existed. Leave both
-# empty to keep that behaviour; set one to override just that phase.
-MAIN_EFFORT="${MAIN_EFFORT:-}"            # --effort for build + triage
-PR_EFFORT="${PR_EFFORT:-}"                # --effort for merge
+# Coordinator model per phase: any `claude --model` value (opus, fable, sonnet, a full model ID).
+# Helpers keep the model in their own agent file, whatever the coordinator runs on.
+MAIN_MODEL="${MAIN_MODEL:-opus}"          # build + triage coordinator
+PR_MODEL="${PR_MODEL:-opus}"              # merge coordinator
+# Per-phase thinking level: low|medium|high|xhigh|max. Default high for both phases (owner,
+# 2026-11-28). An explicit empty value (MAIN_EFFORT=) leaves --effort off, so settings.json decides.
+MAIN_EFFORT="${MAIN_EFFORT-high}"         # --effort for build + triage
+PR_EFFORT="${PR_EFFORT-high}"             # --effort for merge
+# Compact a session when its context reaches this size (owner, 2026-11-28: 400k). Every turn
+# re-sends the whole context, and builds ran at 200–500k per turn. Empty = the CLI's own window.
+AGENT_COMPACT_WINDOW="${AGENT_COMPACT_WINDOW-400000}"
+[ -n "$AGENT_COMPACT_WINDOW" ] && export CLAUDE_CODE_AUTO_COMPACT_WINDOW="$AGENT_COMPACT_WINDOW"
 # Both phases run on the primary Claude account (~/.claude) by default; point a phase at another
 # profile to move it, e.g. PR_CONFIG_DIR=~/.claude-max-2 issue-loop.sh <folder>
 MAIN_CONFIG_DIR="${MAIN_CONFIG_DIR-$HOME/.claude}"  # CLAUDE_CONFIG_DIR for build/triage
@@ -986,8 +990,8 @@ BUILT_BRANCHES=""
 banner "ISSUE LOOP STARTING — ${TRACKER_DIR}"
 log "worktree: ${B}$(pwd)${R}"   # printed loudly: starting in the wrong worktree is easy to miss
 log "cycle=${CYCLE_MINUTES}m  base=${BASE_BRANCH}  main=${MAIN_BRANCH}"
-log "models: build/triage=${MAIN_MODEL}  merge=${PR_MODEL}  helpers=Opus (frontend/browser=Sonnet 5.5)"
-log "effort: build/triage=${MAIN_EFFORT:-settings.json}  merge=${PR_EFFORT:-settings.json}"
+log "models: build/triage=${MAIN_MODEL}  merge=${PR_MODEL}  helpers=per agent file (research/browser=Sonnet, CI wait=Haiku)"
+log "effort: build/triage=${MAIN_EFFORT:-settings.json}  merge=${PR_EFFORT:-settings.json}  compact at=${AGENT_COMPACT_WINDOW:-CLI default}"
 log "accounts: build/triage=${MAIN_CONFIG_DIR:-terminal default}  merge=${PR_CONFIG_DIR:-terminal default}"
 log "stop gracefully: ${B}touch ${STOP_FILE}${R}"
 

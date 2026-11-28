@@ -33,7 +33,7 @@ PRETTY_SCRIPT="$SCRIPT_DIR/pretty-stream.py"
 # shellcheck source=loop-agent.sh
 . "$SCRIPT_DIR/loop-agent.sh"
 
-MERGE_POLL_MINUTES="${MERGE_POLL_MINUTES:-5}"   # empty queue: how often to re-read the queue file
+MERGE_POLL_MINUTES="${MERGE_POLL_MINUTES:-2}"   # empty queue: how often to re-read the queue file
 LOOP_NAME="merge"
 WORKTREE_LOCK="$LOG_DIR/loop.lock"            # one loop per worktree (same file as issue-loop.sh)
 MERGE_LOCK="$LOCK_HOME/merge-loop.lock"       # one merge loop per machine (phase 1)

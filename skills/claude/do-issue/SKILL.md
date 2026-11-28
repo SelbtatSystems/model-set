@@ -18,7 +18,15 @@ The autonomous runner starts you with `claude --print`: single-shot. Your final 
 
 If a job genuinely cannot be waited on, state it as a blocker. The runs behind these rules: [references/incidents.md](references/incidents.md).
 
-Keep delegation bounded: at most two implementation helpers plus one frontend reviewer per ticket. Do routine steps yourself. Helpers use Opus (`model: "opus"`) at high effort, work on distinct scopes, and do not launch agents of their own. Only `frontend-review` uses Sonnet 5.5 (`model: "claude-sonnet-5-5"`) at high effort for the ticket’s browser critique. Reuse an existing helper for follow-up work instead of spawning per file or per finding.
+Keep delegation bounded: at most two implementation helpers plus one frontend reviewer per ticket. Implementation helpers use Opus (`model: "opus"`) at high effort, work on distinct scopes, and do not launch agents of their own. Reuse an existing helper for follow-up work instead of spawning per file or per finding.
+
+**Three jobs always go to a cheaper helper, never to you.** Every turn of yours re-sends your whole context, so a job you do yourself costs far more than the same job in a small helper:
+
+- **Code research** — a question that needs more than ~3 searches or file reads (where something lives, how a flow works, which callers a change touches): `code-researcher` (Sonnet 5.5, high). Ask one question; you get an answer with `file:line` evidence. Read a file yourself only when you are about to edit it.
+- **Browser work** — every `agent-browser` step and every screenshot: `browser-check` (Sonnet 5.5, high) for pass/fail checks, `frontend-review` (Sonnet 5.5, high) for the ticket's browser critique. Never run `agent-browser` or read a screenshot yourself.
+- **Waiting on GitHub** — any CI run or PR check you must wait for: `ci-waiter` (Haiku). Give it the repo path, the PR or run ID and the HEAD SHA; you stay blocked on it, and it answers green, or red with the failed job's log tail. You diagnose and fix. One-shot `gh` commands (`gh pr create`, `gh pr view`) stay with you.
+
+Start these helpers in the foreground and wait for their answer — that is the "wait for everything you start" rule above.
 
 The tracker spec — where tickets live, the issue file format, the find-work command, and the triage roles — is defined in `docs/agents/issue-tracker.md` + `docs/agents/triage-labels.md` (reached via the repo's `## Agent skills` block). Read them; this skill does not restate them. If that config is missing, stop and ask the user where the tracker config lives — do not guess a tracker layout.
 
@@ -104,7 +112,7 @@ If it reports `BEHIND`, sync before running the gate — and re-run the gate aft
 
 After syncing, rebuild and restart the affected Docker services before testing — the containers are still serving pre-merge code.
 
-Discover the repo's quality gate first (`cat package.json`, `ls .github/workflows`), then run it — typecheck · lint · test · build. Check **each acceptance criterion by executing the actual check** (`agent-browser`, `design-review`, a query, a request, a test run) — never by inspecting code or diffs. A criterion you cannot execute stays unchecked: report it as such, do not claim it.
+Discover the repo's quality gate first (`cat package.json`, `ls .github/workflows`), then run it — typecheck · lint · test · build. Check **each acceptance criterion by executing the actual check** (a `browser-check` or `frontend-review` helper for UI, a query, a request, a test run) — never by inspecting code or diffs. A criterion you cannot execute stays unchecked: report it as such, do not claim it.
 
 If this ticket adds a DB migration, apply it to **the current worktree's own database** before testing — each worktree runs a separate DB volume, so tests and runtime exercise that stack, not main's.
 

@@ -9,7 +9,7 @@ Take a pull request from open to merged without shipping a regression. Inputs: a
 
 The organizing lever is **risk tier** — cheap checks run on every PR, expensive ones scale with risk. One **gate** is absolute: no PR merges while an unpatched high/critical security finding lives in the diff. The agent patches those, not the user.
 
-The main merge coordinator, code/spec/standards reviewer and security reviewer run on **Opus**. Only frontend/browser reviews use **Sonnet 5.5**. Reviewers use high effort.
+The security reviewer always runs on **Opus at high effort**. The code/spec/standards reviewer follows the risk tier (below). Browser work runs on **Sonnet 5.5** at high effort, code research on **Sonnet 5.5** at high effort (`code-researcher`), and CI waits on **Haiku** (`ci-waiter`).
 
 This skill uses two direct reviewers: `pr-code-reviewer` for correctness, spec and standards, and `pr-security-reviewer` for an independent security pass. The parent patches findings and runs static checks, tests, runtime verification and CI. Do not invoke the built-in code-review/security-review/simplify pipelines or two-axis-review inside this workflow: their nested reviewers duplicate these passes.
 
@@ -34,9 +34,18 @@ The runner starts you with `claude --print`: single-shot. Your final message end
 
 Use at most **two review roles plus one frontend/browser reviewer** for a PR snapshot. No coordinator wrappers, per-angle finders, per-file reviewers, per-finding verifiers, or nested model CLI runs. The named code/security agents have only Read, Grep, Glob and Bash: no delegation or Skill tools. If an agent definition is missing, stop and repair the installation; do not silently fall back to an unrestricted agent.
 
-- **Code/spec/standards:** `pr-code-reviewer`, Opus (`model: "opus"`), high effort for every risk tier.
+- **Code/spec/standards — by risk tier:**
+  - **Low:** `pr-code-reviewer` with `model: "sonnet"` (Sonnet 5.5, high effort from its agent file).
+  - **Medium:** `pr-code-reviewer-medium` (Opus, medium effort).
+  - **High:** `pr-code-reviewer` (Opus, high effort).
+  A tier raised later in the run (Merge danger, a risky fix) re-runs the review with the higher role on the changed paths.
 - **Security:** `pr-security-reviewer`, Opus (`model: "opus"`), high effort for every risk tier.
-- **Frontend/runtime browser work:** `frontend-review`, Sonnet 5.5, high effort. Only when UI needs verification; no additional design-review agent for the same surface.
+- **Frontend/runtime browser work:** `browser-check` (pass/fail checks) or `frontend-review` (UI review), Sonnet 5.5, high effort. Only when UI needs verification; no additional design-review agent for the same surface. You never run `agent-browser` or read screenshots yourself.
+
+Two helpers outside the review budget, because they save your context:
+
+- **`code-researcher`** (Sonnet 5.5, high) — for any question that needs more than ~3 searches or file reads. Read a file yourself only when you are about to edit it.
+- **`ci-waiter`** (Haiku) — for every CI wait in layer 7. One-shot `gh` commands (`gh pr view`, `gh pr ready`, `gh pr merge`) stay with you.
 
 Give each reviewer the absolute worktree path, exact base and HEAD SHAs, spec path and applicable risk areas. Require read-only work, no PR actions, no sentinels, and a complete/ incomplete verdict with covered revisions and concrete findings. Start the security pass after correctness fixes are committed, so it reviews the code that may ship. The parent triages and verifies findings itself.
 
@@ -111,7 +120,7 @@ Run tests **against the Docker stack, never a dev server** — rebuild + restart
 
 ### 6. Runtime verify
 
-Boot the affected service(s) and exercise the real path yourself: happy path + one failure path + one edge case — `agent-browser` for UI, a request or query for API and DB. Watch logs for DI / module-wiring / migration / console errors a green build hides (NestJS provider/controller wiring especially). If delegated, use the single Sonnet 5.5 `frontend-review` role with read-only fixture verification; the parent fixes code. Save its coverage and verdict. Do not repeat a completed browser review on unchanged revisions and unchanged relevant runtime state.
+Boot the affected service(s) and exercise the real path: happy path + one failure path + one edge case — a `browser-check` helper for UI, a request or query (yourself) for API and DB. Watch logs for DI / module-wiring / migration / console errors a green build hides (NestJS provider/controller wiring especially). UI checks always go to the single Sonnet 5.5 role (`browser-check`, or `frontend-review` for a UI review) with read-only fixture verification; the parent fixes code. Save its coverage and verdict. Do not repeat a completed browser review on unchanged revisions and unchanged relevant runtime state.
 
 High risk → run the domain hand-checks in [`references/risk-playbooks.md`](references/risk-playbooks.md): cross-tenant access, auth boundaries, migration on clean **and** existing DB, API contract front↔back, failure/observability paths.
 
@@ -131,6 +140,8 @@ A PR that is already ready (a human opened it, or a previous attempt marked it) 
 
 Wait for CI to **complete** — never merge on pending. Require all green, and the branch up to date with base — if behind, **merge base into the branch** (never rebase a pushed PR branch: the force-push it needs is hook-blocked; matters most for migrations and shared files).
 
+**Hand every CI wait to `ci-waiter` (Haiku).** Start it in the foreground with the worktree path, the PR number and the HEAD SHA you pushed, and wait for its answer: `green`, `red` with each failed job's name and log tail, or `still-running`. Each poll you make yourself re-sends your whole context; the waiter's polls cost a small fraction of that. You read its answer, then diagnose, fix, rerun or merge. The commands below are what the waiter runs — use them yourself only if the waiter cannot start.
+
 **Review the final snapshot.** Any fix or base merge after the reviews invalidates affected reports; complete code/security review of the changed paths and required checks on the final revisions before merging.
 
 **Retry the same snapshot cheaply.** Record the PR head and base commits for the run you are waiting on. Inspect failures first. An unchanged snapshot with a transient failure gets one `gh run rerun <run-id> --failed`: failed jobs and their dependants run again, including every test in those jobs. If it fails again, diagnose it. A fix or a merge from updated base needs a push and fresh applicable checks; retrying an old run cannot test that new code. When you cannot establish the original snapshot, do not carry its successful checks forward. Respect a repository guard's recovery instructions: AgCore's draft-skip guard requires a full rerun to refresh the cached draft state.
@@ -146,7 +157,7 @@ gh run view <run-id> --json status,conclusion --jq '{status,conclusion}'
 
 **Always pass `--interval 30`.** Each refresh is a REST call against the 5000/hour core quota that every loop on this machine shares: a default-interval watch spends ~390 calls, one at `--interval 30` ~40. Same for `gh pr checks <#> --watch --interval 30`.
 
-Budget about four such calls (~40 min) before treating CI as genuinely stuck. Do **not** replace the repeated call with a Monitor, a background task, or ending your turn. CI never goes green within that budget → autonomous: `<<<MERGE_BLOCKED #N ci-timeout>>>`.
+Budget about 40 min of waiting (one `ci-waiter` run, or about four such calls) before treating CI as genuinely stuck. Do **not** replace the wait with a Monitor, a background task, or ending your turn. CI never goes green within that budget → autonomous: `<<<MERGE_BLOCKED #N ci-timeout>>>`.
 
 State the merge decision plainly: requirement met · diff scoped · build + tests + CI green · runtime path exercised · security gate clean · DB/migration risk handled. Any gate above still red → do not merge (autonomous: `<<<MERGE_BLOCKED #N reason>>>`).
 

@@ -60,8 +60,9 @@ Until the cut-over (ticket 05) the old issue loops still run. The map is the tar
   `main`. The build log says `treating as NOT done (PR not merged yet): 03-x.md`.
 * **Every worktree keeps its own database.** Every loop syncs `main` and applies migrations with
   the same stop rules as `issue-loop.sh`.
-* **All Claude phases use Opus** (fixed in the scripts; `MAIN_MODEL`/`PR_MODEL` are ignored) on the
-  primary account `~/.claude`.
+* **Claude phases use Opus at high effort by default**, on the primary account `~/.claude`.
+  `MAIN_MODEL`/`PR_MODEL` choose another coordinator (e.g. `fable`); helpers keep the model in
+  their agent file. Sessions compact at 400k context (`AGENT_COMPACT_WINDOW`).
 
 **Shared state — one directory per machine,** `~/.local/state/agcore/` (`LOOP_STATE_DIR`):
 
@@ -607,8 +608,9 @@ Then give Sven the command, with the tracker spelled out.
 Use a different value only if Sven asks for one in that message. **Never add an account
 override**: every Claude phase runs on the primary account `~/.claude` by default (Sven,
 2026-10-03); pass `MAIN_CONFIG_DIR=…` / `PR_CONFIG_DIR=…` only if he asks in that message.
-Models are fixed to Opus in the issue, build and merge runners — do not pass `MAIN_MODEL`/`PR_MODEL`
-to them.
+Hand over the model and effort knobs with their defaults spelled out (`MAIN_MODEL=opus
+MAIN_EFFORT=high`, `PR_MODEL=opus PR_EFFORT=high`), so Sven can change them in the tab; use another
+value only if he asks for it (e.g. `MAIN_MODEL=fable`).
 
 **Pass the tracker as `memory/AgCore/planning/issues/<slug>`**, the same string every time. The
 build loop stores it in the queue's `tracker` column and matches its own PRs by that exact string
@@ -617,17 +619,18 @@ build loop stores it in the queue's `tracker` column and matches its own PRs by 
 ```bash
 # build loop — wt1 or wt2, one tracker each
 cd /home/sven/Projects/agcore-wt1
-CYCLE_MINUTES=30 \
+MAIN_MODEL=opus MAIN_EFFORT=high CYCLE_MINUTES=30 \
   ~/.claude/skills/issue-loop/scripts/build-loop.sh \
   memory/AgCore/planning/issues/<feature-slug>
 
 # merge loop — wt3, no argument (one per machine)
 cd /home/sven/Projects/agcore-wt3
-CYCLE_MINUTES=30 ~/.claude/skills/issue-loop/scripts/merge-loop.sh
+PR_MODEL=opus PR_EFFORT=high CYCLE_MINUTES=30 MERGE_POLL_MINUTES=2 \
+  ~/.claude/skills/issue-loop/scripts/merge-loop.sh
 
-# issue loop — the fallback, one worktree, one tracker
+# issue loop — the fallback, one worktree, one tracker (MAIN_MODEL=fable works here too)
 cd /home/sven/Projects/agcore-wt2
-CYCLE_MINUTES=30 \
+MAIN_MODEL=opus MAIN_EFFORT=high PR_MODEL=opus PR_EFFORT=high CYCLE_MINUTES=30 \
   ~/.claude/skills/issue-loop/scripts/issue-loop.sh \
   memory/AgCore/planning/issues/<feature-slug>
 
@@ -645,7 +648,7 @@ CYCLE_MINUTES=30 ADMIN_MODEL=opus MERGE_MODEL=opus ./scripts/admin-loop.sh
 ```
 
 In the merge loop, `CYCLE_MINUTES` is only the wait after a cycle skipped because GitHub was
-unreachable; an empty queue is re-read every `MERGE_POLL_MINUTES` (default 5). Stop files:
+unreachable; an empty queue is re-read every `MERGE_POLL_MINUTES` (default 2; a file read, no GitHub call, no tokens). Stop files:
 `touch .issue-loop-stop` (issue, build, merge), `./scripts/stop-loop` (docs), `touch
 .admin-loop-stop` (admin). Each loop finishes the phase it is in, never stops mid-merge.
 
@@ -655,7 +658,8 @@ On the VPS, same shape with `~/projects/git-worktrees/agcore/agcore-wt1-vps` and
 
 Only Codex agents have a thinking level in docs/admin (`DOCS_EFFORT`, `ADMIN_EFFORT`); Claude
 phases of the issue, build and merge runners take `MAIN_EFFORT` / `PR_EFFORT`
-(`low|medium|high|xhigh|max`, empty = the account's `settings.json`). Details:
+(`low|medium|high|xhigh|max`, default `high`; an explicit empty value = the account's `settings.json`),
+`MAIN_MODEL` / `PR_MODEL` (default `opus`) and `AGENT_COMPACT_WINDOW` (default `400000`). Details:
 `memory/_cheat-sheets/loops.md`.
 
 Sven runs these in **herdr** tabs, one per worktree, in the `loops` session:

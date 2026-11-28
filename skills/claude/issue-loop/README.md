@@ -30,14 +30,22 @@ It finishes the phase it is in (never mid-merge) and exits. Ctrl-C is a hard sto
 # Opus builds, triages and coordinates bounded reviews and merges
 ~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
 
+# Fable builds, Opus merges, both at high effort
+MAIN_MODEL=fable ~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
+
 # Same models, merge phase on the second account
 PR_CONFIG_DIR=~/.claude-max-2 \
   ~/.claude/skills/issue-loop/scripts/issue-loop.sh <folder>
 ```
 
-Code/spec/standards and security reviewers use Opus at high effort. Only frontend/browser
-reviews use Sonnet 5.5. Merge review is limited to those two Opus reviewers and,
-when needed, one Sonnet frontend reviewer; no nested reviewer trees.
+Coordinators run on `MAIN_MODEL` / `PR_MODEL` (default Opus; `fable` works too). Helpers keep
+the model in their agent file, whatever the coordinator runs on: code research on Sonnet 5.5
+high (`code-researcher`), browser checks on Sonnet 5.5 high (`frontend-review`), CI waits on
+Haiku (`ci-waiter`). `do-pr` picks the code reviewer by risk tier — low: Sonnet high, medium:
+Opus medium, high: Opus high — and always runs the Opus high security reviewer. Reviewers do
+not delegate. The runner clears the blanket subagent-model environment override so each role
+keeps its model.
+No nested reviewer trees.
 
 ### Before the first run
 
@@ -105,8 +113,10 @@ folder. `NEEDS-HUMAN.md` is the thing to read when you come back.
 
 | Env | Default | Meaning |
 |---|---|---|
-| `MAIN_MODEL` | `opus` (fixed) | build + triage coordinators; environment overrides are ignored |
-| `PR_MODEL` | `opus` (fixed) | merge coordinator; environment overrides are ignored |
+| `MAIN_MODEL` | `opus` | build + triage coordinators; any `claude --model` value, e.g. `fable` |
+| `PR_MODEL` | `opus` | merge coordinator |
+| `MAIN_EFFORT` / `PR_EFFORT` | `high` | `--effort` per phase; set it empty to let `settings.json` decide |
+| `AGENT_COMPACT_WINDOW` | `400000` | context size at which a session compacts (`CLAUDE_CODE_AUTO_COMPACT_WINDOW`); empty = CLI default |
 | `MAIN_CONFIG_DIR` / `PR_CONFIG_DIR` | `~/.claude` | Claude account per phase, e.g. `~/.claude-max-2` |
 | `CYCLE_MINUTES` | `30` | wait between cycles |
 | `MAX_FAILS` | `3` | consecutive failed/stalled cycles before stopping |
@@ -283,8 +293,8 @@ process name (`build-loop.sh[issue-loop.sh]`, `merge-loop.sh[issue-loop.sh]`).
 
 ### Settings
 
-All `issue-loop.sh` knobs above apply with the same defaults: Opus fixed for every
-phase, `MAIN_EFFORT` / `MAIN_CONFIG_DIR` (build, triage), `PR_EFFORT` / `PR_CONFIG_DIR`
+All `issue-loop.sh` knobs above apply with the same defaults: `MAIN_MODEL` / `PR_MODEL`
+(Opus), `AGENT_COMPACT_WINDOW`, `MAIN_EFFORT` / `MAIN_CONFIG_DIR` (build, triage), `PR_EFFORT` / `PR_CONFIG_DIR`
 (merge; both accounts default to `~/.claude`), `MAX_FAILS`, `NET_MAX_CYCLES`,
 `GH_RETRIES`, `GH_RETRY_BASE`, `AUTO_MIGRATE`, `MAIN_BRANCH`, `BASE_BRANCH`, `LOG_DIR`,
 `STOP_FILE`, `PRETTY_OUTPUT`. Differences:
@@ -293,7 +303,7 @@ phase, `MAIN_EFFORT` / `MAIN_CONFIG_DIR` (build, triage), `PR_EFFORT` / `PR_CONF
 |---|---|---|
 | `CYCLE_MINUTES` | `30` | Build loop: wait when nothing is startable. Both: wait after a cycle skipped because GitHub was unreachable |
 | `MAX_FAILS` | `3` | Build loop: failed cycles in a row. Merge loop: attempts per PR before parking it |
-| `MERGE_POLL_MINUTES` | `5` | Merge loop: how often it re-reads an empty queue |
+| `MERGE_POLL_MINUTES` | `2` | Merge loop: how often it re-reads an empty queue |
 | `LOOP_STATE_DIR` | `~/.local/state/agcore` | Queue, parked and metrics files |
 
 Moving a worktree from `issue-loop.sh` to `build-loop.sh`: the merge loop does not

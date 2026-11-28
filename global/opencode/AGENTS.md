@@ -26,9 +26,13 @@
 ## Tools
 
 - **Context7 MCP** — fetch current, version-accurate library/framework docs instead of relying on training data (details: `context7-mcp` skill).
-- **agent-browser skill** — browser debugging, screenshots, testing, reading console errors. `snapshot -i` before interacting; re-snapshot after navigation (refs invalidate on page changes).
-- **Subagent models (Claude Code)** — use **Opus** (`model: "opus"`) for implementation, research, planning, searches, mechanical work, code/spec/standards reviews, and security reviews. Use **high reasoning effort** wherever effort is settable. **Exception:** frontend/browser testing and design reviews use **Sonnet 5.5** (Agent call: `model: "sonnet"`; agent frontmatter: `claude-sonnet-5-5`) at high effort. Do not invoke maximum-review pipelines that spawn reviewer trees. The Agent call sets the model; custom-agent frontmatter sets effort.
-- **Delegation cost** — do short tasks in the parent. Give each helper one bounded task; no reviewer-per-file, reviewer-per-angle, or verifier-per-finding trees. Helpers do not delegate unless the user explicitly requests that structure. Merge reviews follow the bounded do-pr workflow; simple checks do not need another agent.
+- **agent-browser skill** — browser debugging, screenshots, testing, reading console errors. `snapshot -i` before interacting; re-snapshot after navigation (refs invalidate on page changes). In Claude Code a helper drives it (see below), never the main session.
+- **Always delegate these three jobs (Claude Code, every session).** Every turn of the main session re-sends its whole context, so these jobs cost far less in a small helper. Start the helper in the foreground and wait for its answer.
+  - **Code research** — a question that needs more than ~3 searches or file reads → `code-researcher` (Sonnet 5.5, high). Read a file yourself only when you are about to edit it.
+  - **Browser work** — every `agent-browser` step and screenshot → `browser-check` (pass/fail checks) or `frontend-review` (UI review and fixes), both Sonnet 5.5, high. Design reviews: `design-review`, Sonnet 5.5, high.
+  - **Waiting on GitHub** — every wait on CI, PR checks or a PR state → `ci-waiter` (Haiku). It answers green, or red with the failed job's log tail; you diagnose and fix. One-shot `gh` commands stay in the main session.
+- **Subagent models (Claude Code)** — implementation, planning and security reviews: **Opus** (`model: "opus"`), high effort. Code/spec/standards review follows the PR risk tier: low → Sonnet 5.5 high (`pr-code-reviewer` with `model: "sonnet"`), medium → Opus medium (`pr-code-reviewer-medium`), high → Opus high (`pr-code-reviewer`). The Agent call sets the model; custom-agent frontmatter sets effort. Do not invoke maximum-review pipelines that spawn reviewer trees.
+- **Delegation cost** — do short tasks in the parent. Give each helper one bounded task; no reviewer-per-file, reviewer-per-angle, or verifier-per-finding trees. Helpers do not delegate unless the user explicitly requests that structure. Merge reviews follow the bounded do-pr workflow; simple checks (one command, one small file) do not need another agent.
 
 ## Credentials
 

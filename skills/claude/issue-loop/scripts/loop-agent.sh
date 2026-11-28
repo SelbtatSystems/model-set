@@ -8,12 +8,18 @@
 # ──────────────────────────────────────────────────────────────
 
 AGENT_NAME="claude"
-MAIN_MODEL="opus"                       # fixed: build + triage coordinators always use Opus
-PR_MODEL="opus"                         # fixed: the merge coordinator always uses Opus
-# Per-phase thinking level: low|medium|high|xhigh|max. EMPTY IS NOT "no thinking" — the flag
-# is then never passed, so the level comes from the account's settings.json `effortLevel`.
-MAIN_EFFORT="${MAIN_EFFORT:-}"            # --effort for build + triage
-PR_EFFORT="${PR_EFFORT:-}"                # --effort for merge
+# Coordinator model per phase: any `claude --model` value (opus, fable, sonnet, a full model ID).
+# Helpers keep the model in their own agent file, whatever the coordinator runs on.
+MAIN_MODEL="${MAIN_MODEL:-opus}"          # build + triage coordinator
+PR_MODEL="${PR_MODEL:-opus}"              # merge coordinator
+# Per-phase thinking level: low|medium|high|xhigh|max. Default high for both phases (owner,
+# 2026-11-28). An explicit empty value (MAIN_EFFORT=) leaves --effort off, so settings.json decides.
+MAIN_EFFORT="${MAIN_EFFORT-high}"         # --effort for build + triage
+PR_EFFORT="${PR_EFFORT-high}"             # --effort for merge
+# Compact a session when its context reaches this size (owner, 2026-11-28: 400k). Every turn
+# re-sends the whole context, and builds ran at 200–500k per turn. Empty = the CLI's own window.
+AGENT_COMPACT_WINDOW="${AGENT_COMPACT_WINDOW-400000}"
+[ -n "$AGENT_COMPACT_WINDOW" ] && export CLAUDE_CODE_AUTO_COMPACT_WINDOW="$AGENT_COMPACT_WINDOW"
 # Both phases run on the primary Claude account (~/.claude) by default; point a phase at another
 # profile to move it, e.g. PR_CONFIG_DIR=~/.claude-max-2 merge-loop.sh
 MAIN_CONFIG_DIR="${MAIN_CONFIG_DIR-$HOME/.claude}"  # CLAUDE_CONFIG_DIR for build/triage
@@ -32,8 +38,8 @@ agent_preflight() {
 }
 
 agent_banner_lines() {
-  log "models: build/triage=${MAIN_MODEL}  merge=${PR_MODEL}  helpers=Opus (frontend/browser=Sonnet 5.5)"
-  log "effort: build/triage=${MAIN_EFFORT:-settings.json}  merge=${PR_EFFORT:-settings.json}"
+  log "models: build/triage=${MAIN_MODEL}  merge=${PR_MODEL}  helpers=per agent file (research/browser=Sonnet, CI wait=Haiku)"
+  log "effort: build/triage=${MAIN_EFFORT:-settings.json}  merge=${PR_EFFORT:-settings.json}  compact at=${AGENT_COMPACT_WINDOW:-CLI default}"
   log "accounts: build/triage=${MAIN_CONFIG_DIR:-terminal default}  merge=${PR_CONFIG_DIR:-terminal default}"
 }
 

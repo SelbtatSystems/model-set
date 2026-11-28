@@ -94,7 +94,8 @@ else:
     prompt = args[args.index("--print") + 1]
 phase = "merge" if "do-pr" in prompt[:8] else "build" if "do-issue" in prompt[:10] else "triage" if "triage" in prompt[:8] else "unknown"
 branch_now = subprocess.run(["git", "symbolic-ref", "--short", "-q", "HEAD"], capture_output=True, text=True).stdout.strip()
-record(prompt=prompt, phase=phase, branch=branch_now)
+record(prompt=prompt, phase=phase, branch=branch_now,
+       compact_window=os.environ.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW"))
 assert phase != "unknown", prompt
 if state.get("hold_once"):
     (root / "agent-started").touch()
@@ -209,7 +210,8 @@ class LoopHarness:
         (self.top / "home").mkdir()
         self.env = os.environ.copy()
         for key in ("MAIN_MODEL", "PR_MODEL", "MAIN_EFFORT", "PR_EFFORT", "BASE_BRANCH", "MAIN_BRANCH",
-                    "MAIN_CONFIG_DIR", "PR_CONFIG_DIR", "STOP_AFTER_SLEEPS", "ISSUE_LOOP_ARGV0"):
+                    "MAIN_CONFIG_DIR", "PR_CONFIG_DIR", "STOP_AFTER_SLEEPS", "ISSUE_LOOP_ARGV0",
+                    "AGENT_COMPACT_WINDOW", "CLAUDE_CODE_AUTO_COMPACT_WINDOW"):
             self.env.pop(key, None)
         self.env.update(PATH=f"{self.bin}:{os.environ['PATH']}", LOOP_TEST_ROOT=str(self.top),
                         HOME=str(self.top / "home"), LOOP_STATE_DIR=str(self.state_dir),
@@ -828,6 +830,35 @@ class LoopReportTests(LoopHarness, unittest.TestCase):
 
 class ClaudeBuildLoopTests(BuildLoopTests):
     HOST = "claude"
+
+    def agent_args(self, phase):
+        return next(c["args"] for c in self.agents if c["phase"] == phase)
+
+    def test_claude_defaults_opus_high_and_400k_compaction(self):
+        self.ticket("01-alpha.md", "ready-for-agent")
+        self.assertEqual(self.run_loop("build-loop.sh", self.wt1, "tracker", stop_after=1), 0, self.output)
+        args = self.agent_args("build")
+        self.assertEqual(args[args.index("--model") + 1], "opus")
+        self.assertEqual(args[args.index("--effort") + 1], "high")
+        self.assertEqual(self.agents[0]["compact_window"], "400000")
+
+    def test_claude_model_effort_and_compaction_can_be_chosen(self):
+        self.ticket("01-alpha.md", "ready-for-agent")
+        self.env.update(MAIN_MODEL="fable", MAIN_EFFORT="", AGENT_COMPACT_WINDOW="")
+        self.assertEqual(self.run_loop("build-loop.sh", self.wt1, "tracker", stop_after=1), 0, self.output)
+        args = self.agent_args("build")
+        self.assertEqual(args[args.index("--model") + 1], "fable")
+        self.assertNotIn("--effort", args)
+        self.assertIsNone(self.agents[0]["compact_window"])
+
+    def test_issue_loop_model_can_be_chosen(self):
+        self.ticket("01-alpha.md", "ready-for-agent")
+        self.env.update(MAIN_MODEL="fable", MAIN_EFFORT="medium")
+        self.assertEqual(self.run_loop("issue-loop.sh", self.wt1, "tracker", stop_after=1), 0, self.output)
+        args = self.agent_args("build")
+        self.assertEqual(args[args.index("--model") + 1], "fable")
+        self.assertEqual(args[args.index("--effort") + 1], "medium")
+        self.assertEqual(self.agents[0]["compact_window"], "400000")
 
 
 class ClaudeMergeLoopTests(MergeLoopTests):

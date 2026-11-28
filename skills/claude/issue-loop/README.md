@@ -40,7 +40,7 @@ PR_CONFIG_DIR=~/.claude-max-2 \
 
 Coordinators run on `MAIN_MODEL` / `PR_MODEL` (default Opus; `fable` works too). Helpers keep
 the model in their agent file, whatever the coordinator runs on: code research on Sonnet 5.5
-high (`code-researcher`), browser checks on Sonnet 5.5 high (`frontend-review`), CI waits on
+xhigh (`code-researcher`), browser checks on Sonnet 5.5 high (`frontend-review`), CI waits on
 Haiku (`ci-waiter`). `do-pr` picks the code reviewer by risk tier — low: Sonnet high, medium:
 Opus medium, high: Opus high — and always runs the Opus high security reviewer. Reviewers do
 not delegate. The runner clears the blanket subagent-model environment override so each role
